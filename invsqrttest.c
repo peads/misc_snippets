@@ -148,7 +148,7 @@ int main(void) {
     long cnt;
     double d = 0.;
 
-    for (cnt = 0; cnt < 1000000; cnt++, f+=0.01f){
+    for (cnt = 0; cnt < 10e9; cnt++, f+=0.01f){
         float a = timeInvSqrt(f);
         float b = timeAsmInvSqrt(f);
         //printf("sqrt[%f] = %f %f\n", f, a, b);
