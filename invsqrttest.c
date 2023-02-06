@@ -68,7 +68,7 @@ float asmInvSqrt(float x) {
         "vmul.F32 s1, s2, s1\n\t"
 
         "asr r1, r1, 1\n\t"
-        "ldr r2, =0x5f3759df\n\t"
+        "ldr r2, =0x5f375a85\n\t"
         "sub r1, r2, r1\n\t"
         //"str r1, %0\n\t"
 
@@ -90,7 +90,7 @@ float asmInvSqrt(float x) {
         "movl %0, %%edx\n\t" 
         "movl %%edx, %3\n\t"
         "sarl $1, %%edx\n\t"        
-        "movl $0x5f3759df, %%eax\n\t"
+        "movl $0x5f375a85, %%eax\n\t"
         "subl %%edx, %%eax\n\t"
         "movl %%eax, %0\n\t"        //0x5f3759df - x
 
@@ -144,18 +144,18 @@ float timeInvSqrt(float s) {
 }
 
 int main(void) {
+
     float f = 1.0f;
-    long cnt;
+    long i, cnt;
     double d = 0.;
 
-    for (cnt = 0; cnt < 10e9; cnt++, f+=0.01f){
+    for (cnt = 0; cnt < 10e6; cnt++, f+=0.0000001f){
         float a = timeInvSqrt(f);
         float b = timeAsmInvSqrt(f);
         //printf("sqrt[%f] = %f %f\n", f, a, b);
         d += fabs(a - b);
-
     }
-    
+
     printf("Carmack avg ns: %f,  asm avg ns: %f\navg delta: %f\n", 
         (float) rollingTimeSums[0] / cnt, 
         (float) rollingTimeSums[1] / cnt,
