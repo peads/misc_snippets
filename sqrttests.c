@@ -21,8 +21,44 @@
 #elif defined(i386) || defined(__i386__) || defined(__i386) || defined(_M_IX86)
     #define x86_32
     #define X86
+#elif defined(__ARM_ARCH_2__)
+    #define ARM
+    #define ARM2
+#elif defined(__ARM_ARCH_3__) || defined(__ARM_ARCH_3M__)
+    #define ARM
+    #define ARM3
+#elif defined(__ARM_ARCH_4T__) || defined(__TARGET_ARM_4T)
+    #define ARM
+    #define ARM4T
+#elif defined(__ARM_ARCH_5_) || defined(__ARM_ARCH_5E_)
+    #define ARM
+    #define ARM5
+#elif defined(__ARM_ARCH_6T2_) || defined(__ARM_ARCH_6T2_)
+    #define ARM
+    #define ARM6T2
+#elif defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) || defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__)
+    #define ARM
+    #define ARM6
+#elif defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+    #define ARM
+    #define ARM7
+#elif defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+    #define ARM
+    #define ARM7A
+#elif defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+    #define ARM
+    #define ARM7R
+#elif defined(__ARM_ARCH_7M__)
+    #define ARM
+    #define ARM7M
+#elif defined(__ARM_ARCH_7S__)
+    #define ARM
+    #define ARM7S
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    #define ARM
+    #define ARM64
 #else
-    #define arm
+    #error "Unsupported architecture!"
 #endif
 
 #define TIMING_RUNS 7
@@ -104,7 +140,9 @@ float sqrt_approx(float z) {
 }
 
 double sqrt_approxd(double z) {
-
+#if !defined(ARM64) && !defined(X86)
+    return sqrt_approx(z);
+#else
     union {
         double f;
         uint64_t j;
@@ -125,6 +163,7 @@ double sqrt_approxd(double z) {
     un.j += 1LU << 61;                /* Add ((b + 1) / 2) * 2^m. */           
 
     return un.f;        /* Interpret again as float */
+#endif
 }
 
 float vectorSqrtf(float n) {
@@ -141,7 +180,9 @@ float vectorSqrtf(float n) {
 }
 
 double vectorSqrt(double n) {
-
+#if !defined(x86_64) && !defined(ARM64)
+    return vectorSqrtf(n); 
+#else
     __asm__ __volatile__(
 #ifdef X86
         "sqrtsd %0, %0" 
@@ -150,10 +191,13 @@ double vectorSqrt(double n) {
 #endif
         : "+x" (n)
     );
+
     return n;
+#endif
 }
 
 double fsqrt(double n) {
+#ifdef X86
     __asm__ __volatile__(
         "fldl %1\n\t"
         "fsqrt\n\t"
@@ -162,9 +206,13 @@ double fsqrt(double n) {
     );
 
     return n;
+#else
+    return vectorSqrt(n);
+#endif
 }
 
 float fsqrtf(float n) {
+#ifdef X86
     __asm__ __volatile__(
         "flds %1\n\t"
         "fsqrt\n\t"
@@ -173,6 +221,9 @@ float fsqrtf(float n) {
     );
 
     return n;
+#else
+    return vectorSqrtf(n);
+#endif
 }
 
 
@@ -219,7 +270,7 @@ int main(void) {
     double actual;
     double errDiffSums[TIMING_RUNS];
     char *runNames[TIMING_RUNS] 
-        = {"approx :: ", "approxd :: ", "vfast :: ", "vfastd :: ", "fsqrt :: ", "fsqrtf :: ", "c_sqrt_fn :: "};
+        = {"approx :: ", "approxd :: ", "vsqrt :: ", "vsqrtd :: ", "fsqrt :: ", "fsqrtf :: ", "c_sqrt_fn :: "};
     val s[TIMING_RUNS];
 
     for (; i < 1000001; ++i, x += 0.01) {
