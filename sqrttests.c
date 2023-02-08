@@ -15,6 +15,16 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#if defined(__x86_64__) || defined(_M_X64)
+    #define x86_64
+    #define X86
+#elif defined(i386) || defined(__i386__) || defined(__i386) || defined(_M_IX86)
+    #define x86_32
+    #define X86
+#else
+    #define arm
+#endif
+
 #include <stdio.h>
 #include <math.h>
 #include <stdint.h>
@@ -91,88 +101,6 @@ float sqrt_approx(float z) {
     return un.f;		/* Interpret again as float */
 }
 
-float invSqrt(float x) {
-
-    float xhalf = 0.5f * x;
-    int i = *(int*)&x;            // store floating-point bits in integer
-    i = 0x5f3759df - (i >> 1);    // initial guess for Newton's method
-    x = *(float*)&i;              // convert new bits into float
-    x = x*(1.5f - xhalf*x*x);     // One round of Newton's method
-
-    return x;
-}
-
-float asmInvSqrt(float x) {
-
-    int i;
-
-    __asm__ __volatile__(
-        "mov %%rdx, %0\n\t"
-        "sar $1, %%rdx\n\t"  
-        "sub $1597463007, %%rdx\n\t"
-        "mov %1, %%rdx"
-        : "=m" (i) : "m" (x)
-    );
-
-    return x;
-}
-
-float fastSqrtf(float n) { 
-    __asm__ __volatile__(
-        "sqrtss  %1, %0" : "=x" (n) : "x" (n)
-    );
-    return n;
-}
-
-double fastSqrt(double n) {
-    __asm__ __volatile__(
-        "sqrtsd %1, %0" : "=x" (n) : "x" (n)
-    );
-    return n;
-}
-
-double fsqrt(double n) {
-    __asm__ __volatile__(
-        "fldl %0\n\t"
-        "fsqrt\n\t"
-        "fstpl %0\n\t"
-        : "=m" (n) : "m" (n)
-    );
-
-    return n;
-}
-
-val timeFastf(float n) {
-
-    struct timespec tstart, tend;
-    clock_gettime(CLOCK_MONOTONIC, &tstart);
-
-    n = fastSqrtf(n);
-
-    clock_gettime(CLOCK_MONOTONIC, &tend);
-    char *timediff = malloc(256);
-    findDeltaTime(4, tstart, tend, timediff);
-
-    free(timediff);
-
-    return (val){n};
-}
-
-//float newtonSqrt(float s) {
-
-    //const float inv2s = u64tod_inv(s * 2.0);
-
-    //float x = 1.;
-    //int i = 0;
-
-    //for (; i < 5; ++i) {
-    //    x = x - (x*x - s) * inv2s;
-    //}
-    //// x = x - (x*x - s) / 2*s;
-
-    //return x;
-//}
-
 double sqrt_approxd(double z) {
 
     union {
@@ -190,127 +118,119 @@ double sqrt_approxd(double z) {
      * m = number of mantissa bits => 52
      * b = exponent bias => 1023 => ((b + 1) / 2) * 2^m = (1024 * 2^(51)) = 2^(10+51) = 1 << 61
      */
-    un.j -= ((uint64_t)1) << 52;                /* Subtract 2^m. */ 
+    un.j -= 1LU << 52;                /* Subtract 2^m. */ 
     un.j >>= 1;                                  /* Divide by 2. */           
-    un.j += ((uint64_t)1) << 61;                /* Add ((b + 1) / 2) * 2^m. */           
+    un.j += 1LU << 61;                /* Add ((b + 1) / 2) * 2^m. */           
 
     return un.f;        /* Interpret again as float */
 }
 
-val timeSqrt(float s) {
+float fastSqrtf(float n) {
+
+    __asm__ __volatile__(
+#ifdef X86
+        "sqrtss  %0, %0" 
+#else
+        "VSQRT.F32 %0, %0"        
+#endif
+        : "+x" (n)
+    );
+    return n;
+}
+
+double fastSqrt(double n) {
+
+    __asm__ __volatile__(
+#ifdef X86
+        "sqrtsd %0, %0" 
+#else
+        "VSQRT.F64 %0, %0"
+#endif
+        : "+x" (n)
+    );
+    return n;
+}
+
+double fsqrt(double n) {
+    __asm__ __volatile__(
+        "fldl %1\n\t"
+        "fsqrt\n\t"
+        "fstpl %0\n\t"
+        : "=m" (n) : "m" (n)
+    );
+
+    return n;
+}
+
+typedef float (*timedFunF)(float n);
+typedef double (*timedFunD)(double n);
+
+val timeFunD(timedFunD fun, double s, int i) {
     struct timespec tstart, tend;
     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-    s = sqrt(s);
+    s = fun(s);
 
     clock_gettime(CLOCK_MONOTONIC, &tend);
     char *timediff = malloc(256);
-    findDeltaTime(0, tstart, tend, timediff);
+    findDeltaTime(i, tstart, tend, timediff);
 
     free(timediff);
 
     return (val){s};
+
 }
 
-val timeFastSqrt(float s) {
+val timeFunF(timedFunF fun, float s, int i) {
+
     struct timespec tstart, tend;
     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-    float x = fastSqrt(s);
+    s = fun(s);
 
     clock_gettime(CLOCK_MONOTONIC, &tend);
     char *timediff = malloc(256);
-    findDeltaTime(1, tstart, tend, timediff);
-
-    free(timediff);
-
-    return (val){x};
-}
-
-val timeApproxSqrtD(double s) {
-    struct timespec tstart, tend;
-    clock_gettime(CLOCK_MONOTONIC, &tstart);
-
-    double x = sqrt_approxd(s);
-
-    clock_gettime(CLOCK_MONOTONIC, &tend);
-    char *timediff = malloc(256);
-    findDeltaTime(4, tstart, tend, timediff);
-
-    free(timediff);
-
-    return (val){x};
-}
-
-val timeFsqrt(double s) {
-    struct timespec tstart, tend;
-    clock_gettime(CLOCK_MONOTONIC, &tstart);
-
-    s = fsqrt(s);
-
-    clock_gettime(CLOCK_MONOTONIC, &tend);
-    char *timediff = malloc(256);
-    findDeltaTime(2, tstart, tend, timediff);
+    findDeltaTime(i, tstart, tend, timediff);
 
     free(timediff);
 
     return (val){s};
-}
-
-val timeInvInvSqrt(float s) {
-    struct timespec tstart, tend;
-    clock_gettime(CLOCK_MONOTONIC, &tstart);
-
-    float x = 1./invSqrt(s);
-
-    clock_gettime(CLOCK_MONOTONIC, &tend);
-    char *timediff = malloc(256);
-    findDeltaTime(3, tstart, tend, timediff);
-
-    free(timediff);
-
-    return (val){x};
 }
 
 int main(void) {
 
+    int j;
+    int i = 0;
     float x = 1.0;
-    double errDiffSums[4];
+    double actual;
+    double errDiffSums[5];
+    char *runNames[5] = {"approx :: ", "approxd :: ", "vfast :: ", "vfastd :: ", "fsqrt :: "};
+    val s[5];
 
-    for (; x < 1000001.0; ++x) {
-        val s3 = timeSqrt(x);
-        //printf("propper :: sqrt[%f] = %f %X\n", x, s3.f, s3.i);
+    for (; i < 1000001; ++i, x += 0.01) {
 
-        val s4 = timeFastSqrt(x);
-        //printf("fast :: sqrt[%f] = %f %X\n", x, s4.f, s4.i);
+        actual = sqrt(x);
 
-        val s5 = timeFsqrt(x);
+        s[0] = timeFunF(sqrt_approx, x, 0);
+        s[1] = timeFunD(sqrt_approxd, x, 1);
+        s[2] = timeFunF(fastSqrtf, x, 2);
+        s[3] = timeFunD(fastSqrt, x, 3);
+        s[4] = timeFunD(fsqrt, x, 4);
         //printf("approx :: sqrt[%f] = %f %X\n", x, s5.f, s5.i);
-
-        val s6 = timeInvInvSqrt(x);
+        //printf("fast :: sqrt[%f] = %f %X\n", x, s4.f, s4.i);
+        //printf("propper :: sqrt[%f] = %f %X\n", x, s3.f, s3.i);
         //printf("fsqrt :: sqrt[%f] = %f %X\n", x, s6.f, s6.i);
-
-        val s7 = timeFastf(x);
         //printf("fastf :: sqrt[%f] = %f %X\n\n", x, s7.f, s7.i);
 
-        errDiffSums[0] += fabs((double) s3.f - (double) s4.f);
-        errDiffSums[1] += fabs((double)s3.f - (double) s5.f);
-        errDiffSums[2] += fabs((double)s3.f - (double)s6.f);
-        errDiffSums[3] += fabs((double)s3.f - (double)s7.f);
+        for (j = 0; j < 5; ++j) {
+            errDiffSums[j] += fabs(actual - (double) s[j].f);
+        }
     }
 
-
-    int i = 0;
-    char *runNames[5] = {"propper :: ", "fast :: ", "fsqrt :: ", "dual inverse :: ", "fastf :: "};
-
-    for (; i < 5; ++i) {
-        const char *runName = runNames[i];
-        printf("%sAverage time: %f ns\n", runName, rollingTimeSums[i] / x);
-
-        if (i > 0) {
-            printf("%sAverage error: %f\n", runName, errDiffSums[i-1] / x);
-        }
-        printf("\n");
+    for (j = 0; j < 5; ++j) {
+        const char *runName = runNames[j];
+        printf("%sAverage time: %f ns\n", runName, rollingTimeSums[j] / ((double) i));
+        printf("%sAverage error: %f\n\n", runName, errDiffSums[j] / ((double) i));
     }
     return 0;
 }
