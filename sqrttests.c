@@ -196,23 +196,10 @@ double vectorSqrt(double n) {
 #endif
 }
 
-double fsqrt(double n) {
-#ifdef X86
-    __asm__ __volatile__(
-        "fldl %1\n\t"
-        "fsqrt\n\t"
-        "fstpl %0\n\t"
-        : "=m" (n) : "m" (n)
-    );
-
-    return n;
-#else
-    return vectorSqrt(n);
-#endif
-}
-
 float fsqrtf(float n) {
-#ifdef X86
+#ifndef X86
+    return vectorSqrtf(n);
+#else
     __asm__ __volatile__(
         "flds %1\n\t"
         "fsqrt\n\t"
@@ -221,11 +208,27 @@ float fsqrtf(float n) {
     );
 
     return n;
-#else
-    return vectorSqrtf(n);
 #endif
 }
 
+double fsqrt(double n) {
+#ifndef X86
+    return vectorSqrt(n);
+#else
+#ifndef x84_64
+    return fsqrtf(n);
+#else
+    __asm__ __volatile__(
+        "fldl %1\n\t"
+        "fsqrt\n\t"
+        "fstpl %0\n\t"
+        : "=m" (n) : "m" (n)
+    );
+
+    return n;
+#endif
+#endif
+}
 
 typedef float (*timedFunF)(float n);
 typedef double (*timedFunD)(double n);
