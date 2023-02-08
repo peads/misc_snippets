@@ -214,8 +214,7 @@ float fsqrtf(float n) {
 double fsqrt(double n) {
 #ifndef X86
     return vectorSqrt(n);
-#else
-#ifndef x84_64
+#elifndef x84_64
     return fsqrtf(n);
 #else
     __asm__ __volatile__(
@@ -226,7 +225,6 @@ double fsqrt(double n) {
     );
 
     return n;
-#endif
 #endif
 }
 
