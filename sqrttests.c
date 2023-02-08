@@ -25,6 +25,8 @@
     #define arm
 #endif
 
+#define TIMING_RUNS 7
+
 #include <stdio.h>
 #include <math.h>
 #include <stdint.h>
@@ -37,7 +39,7 @@ typedef union {
     uint32_t i; 
 } val;
 
-static time_t rollingTimeSums[5];
+static time_t rollingTimeSums[TIMING_RUNS];
 
 void findDeltaTime(int idx, struct timespec tstart, struct timespec tend, char *timediff) {
     time_t deltaTsec = tend.tv_sec - tstart.tv_sec;
@@ -125,7 +127,7 @@ double sqrt_approxd(double z) {
     return un.f;        /* Interpret again as float */
 }
 
-float fastSqrtf(float n) {
+float vectorSqrtf(float n) {
 
     __asm__ __volatile__(
 #ifdef X86
@@ -138,7 +140,7 @@ float fastSqrtf(float n) {
     return n;
 }
 
-double fastSqrt(double n) {
+double vectorSqrt(double n) {
 
     __asm__ __volatile__(
 #ifdef X86
@@ -161,6 +163,18 @@ double fsqrt(double n) {
 
     return n;
 }
+
+float fsqrtf(float n) {
+    __asm__ __volatile__(
+        "flds %1\n\t"
+        "fsqrt\n\t"
+        "fstps %0\n\t"
+        : "=m" (n) : "m" (n)
+    );
+
+    return n;
+}
+
 
 typedef float (*timedFunF)(float n);
 typedef double (*timedFunD)(double n);
@@ -203,31 +217,33 @@ int main(void) {
     int i = 0;
     float x = 1.0;
     double actual;
-    double errDiffSums[5];
-    char *runNames[5] = {"approx :: ", "approxd :: ", "vfast :: ", "vfastd :: ", "fsqrt :: "};
-    val s[5];
+    double errDiffSums[TIMING_RUNS];
+    char *runNames[TIMING_RUNS] 
+        = {"approx :: ", "approxd :: ", "vfast :: ", "vfastd :: ", "fsqrt :: ", "fsqrtf :: ", "c_sqrt_fn :: "};
+    val s[TIMING_RUNS];
 
     for (; i < 1000001; ++i, x += 0.01) {
 
-        actual = sqrt(x);
-
         s[0] = timeFunF(sqrt_approx, x, 0);
         s[1] = timeFunD(sqrt_approxd, x, 1);
-        s[2] = timeFunF(fastSqrtf, x, 2);
-        s[3] = timeFunD(fastSqrt, x, 3);
+        s[2] = timeFunF(vectorSqrtf, x, 2);
+        s[3] = timeFunD(vectorSqrt, x, 3);
         s[4] = timeFunD(fsqrt, x, 4);
+        s[5] = timeFunF(fsqrtf, x, 5);
+        s[6] = timeFunD(sqrt, x, 6);
+        actual = s[6].f;
         //printf("approx :: sqrt[%f] = %f %X\n", x, s5.f, s5.i);
         //printf("fast :: sqrt[%f] = %f %X\n", x, s4.f, s4.i);
         //printf("propper :: sqrt[%f] = %f %X\n", x, s3.f, s3.i);
         //printf("fsqrt :: sqrt[%f] = %f %X\n", x, s6.f, s6.i);
         //printf("fastf :: sqrt[%f] = %f %X\n\n", x, s7.f, s7.i);
 
-        for (j = 0; j < 5; ++j) {
+        for (j = 0; j < TIMING_RUNS - 1; ++j) {
             errDiffSums[j] += fabs(actual - (double) s[j].f);
         }
     }
 
-    for (j = 0; j < 5; ++j) {
+    for (j = 0; j < TIMING_RUNS; ++j) {
         const char *runName = runNames[j];
         printf("%sAverage time: %f ns\n", runName, rollingTimeSums[j] / ((double) i));
         printf("%sAverage error: %f\n\n", runName, errDiffSums[j] / ((double) i));
