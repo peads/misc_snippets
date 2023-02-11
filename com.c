@@ -165,7 +165,18 @@ static void mult(int ar, int aj, int br, int bj/*, int *vr, int *vj*/) {
 
 int main()
 {
-    mult((int16_t)1,(int16_t)2,(int16_t)3,(int16_t)4);
+
+    int i[4];
+    for (i[0] = 0; i[0] < 10; ++i[0]) {
+        for (i[1] = 0; i[1] < 10; ++i[1]) {
+            for (i[2] = 0; i[2] < 10; ++i[2]) {
+                for (i[3] = 0; i[3] < 10; ++i[3]) {
+                    mult(i[0],i[1],i[2],i[3]);
+                }
+            }
+        }
+    }
+
     mult(5,6,7,8);
     mult(9,10,11,12);
 
