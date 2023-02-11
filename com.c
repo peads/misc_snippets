@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 
-#define TIMING_RUNS 3
+#define TIMING_RUNS 4
 typedef double (*timedFunD)(int ar, int aj, int br, int bj);
 
 static time_t rollingTimeSums[TIMING_RUNS];
@@ -56,7 +56,7 @@ union vect {
 };
 
 
-static double calcVect(int ar, int aj, int br, int bj) {
+static double calcVectPd(int ar, int aj, int br, int bj) {
 
     union vect u = {ar, aj, ar, br};
     union vect v = {br, bj, bj, aj};
@@ -74,6 +74,37 @@ static double calcVect(int ar, int aj, int br, int bj) {
     
     return -acos(zj/z[0]);
 }
+
+double calcVect(int ar, int aj, int br, int bj) {
+    double zr;
+    double zj;
+
+    union vect {
+        __m128i vect;
+    };
+
+    union vect u1 = {ar, ar};
+    union vect v1 = {br, bj};
+    union vect u0 = {aj, br};
+    union vect v0 = {bj, aj};
+
+    v1.vect = _mm_mul_epi32(u1.vect, v1.vect); // => {ar*br, ar*bj}
+    v0.vect = _mm_mul_epi32(u0.vect, v0.vect); // => {aj*bj, br*aj}
+
+    u1.vect = _mm_sub_epi64(v1.vect, v0.vect); // => {ar*br - aj*bj, ar*bj - br*aj} *we don't care about the second entry
+    u0.vect = _mm_add_epi32(v1.vect, v0.vect); // => {ar*br + aj*bj, ar*bj + br*aj} *we don't care about the first entry
+    
+    zr = u1.vect[0];
+    zj = u0.vect[1];
+    
+    u0.vect = _mm_mul_epi32(u0.vect, u0.vect);
+    u1.vect = _mm_mul_epi32(u1.vect, u1.vect);
+    u0.vect = _mm_add_epi32(u0.vect, _mm_shuffle_epi32(u1.vect, _MM_SHUFFLE(1,0,1,0)));
+
+    return -acos(zj/sqrt(u0.vect[1]));
+}
+
+
 
 static double calcAcos(int ar, int aj, int br, int bj) {
 
@@ -97,20 +128,21 @@ static void mult(int ar, int aj, int br, int bj/*, int *vr, int *vj*/) {
     ++runCount;
 
     int j = 0;
-    double results[3] = {
+    double results[TIMING_RUNS] = {
         timeFunD(calcAtan2,ar,aj,br,bj,0),
         timeFunD(calcAcos,ar,aj,br,bj,1),
-        timeFunD(calcVect,ar,aj,br,bj,2)
+        timeFunD(calcVect,ar,aj,br,bj,2),
+        timeFunD(calcVectPd,ar,aj,br,bj,3)
     };
     char *runNames[TIMING_RUNS] 
-        = {"calcAtan2 :: ", "calcAcos :: ", "calcVect :: "};
+        = {"calcAtan2 :: ", "calcAcos :: ", "calcVect :: ", "caclVectPd :: "};
 
-    printf("(%d + %di) . (%d + %di) = (%d + %di) angle: %f, %f, %f \n", 
+    printf("(%d + %di) . (%d + %di) = (%d + %di) angle: %f, %f, %f, %f \n", 
         ar, aj, 
         br, bj,
         ar * br - aj * bj,
         aj * br + ar * bj,
-        results[0], results[1], results[2]);
+        results[0], results[1], results[2], results[3]);
 
     for (; j < TIMING_RUNS; ++j){
         const char *runName = runNames[j];
