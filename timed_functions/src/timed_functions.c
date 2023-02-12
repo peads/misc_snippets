@@ -36,7 +36,7 @@ static void findDeltaTime(int idx, const struct timespec *tstart, const struct t
     timespec_diff(tend, tstart, &tau);
 
 //    printf("%sCAnp1 = (xnp1 + n * CAn)/(n + 1) = (%ld + %llu * %LF)/%llu\n", runNames[idx], tau.tv_nsec, counts[idx], rollingTimeAvgs[idx], counts[idx] + 1);
-    rollingTimeAvgs[idx] = (long double) (tau.tv_nsec + counts[idx] * rollingTimeAvgs[idx]) / ++counts[idx];
+    rollingTimeAvgs[idx] = ((long double) tau.tv_nsec + (long double) counts[idx] * rollingTimeAvgs[idx]) / (long double) ++counts[idx];
 //    timeDiffSums[idx] += tau.tv_nsec;
     //printf("curr avg %Lf\n", rollingTimeAvgs[idx]);
 

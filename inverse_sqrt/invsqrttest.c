@@ -30,7 +30,7 @@
 #define X86
 #endif
 
-void invSqrt(float *x, void*) {
+void invSqrt(float *x) {
 
     float xhalf = 0.5f * *x;
     int i = *(int*)x;            // store floating-point bits in integer
@@ -39,7 +39,7 @@ void invSqrt(float *x, void*) {
     *x = *x*(1.5f - xhalf**x**x);     // One round of Newton's method
 }
 
-void asmInvSqrt(float *result, void*) {
+void asmInvSqrt(float *result) {
 
     const float half = 0.5f;
     const float threeHavles = 1.5f;
@@ -103,10 +103,10 @@ void asmInvSqrt(float *result, void*) {
 int main(void) {
 
     float f = 1.0f;
-    long cnt;
-    double d = 0.;
+    uint64_t cnt;
+    long double d = 0.;
 
-    for (cnt = 0; cnt < 16; cnt++, f++){
+    for (cnt = 0; cnt < (1<<25); cnt++, f+=0.0001f){
 
         float a, b;
         a = b = f;
@@ -119,8 +119,8 @@ int main(void) {
             = {"carmack :: ", "asm :: "};
 
     printTimedRuns(runNames, TIMING_RUNS);
-
-    printf("\navg delta: %f\n", d / cnt);
+    d /= (long double) cnt;
+    printf("\navg delta: %Le\n", d);
     return 0;
 }
 
