@@ -35,12 +35,7 @@ static void findDeltaTime(int idx, const struct timespec *tstart, const struct t
 
     timespec_diff(tend, tstart, &tau);
 
-//    printf("%sCAnp1 = (xnp1 + n * CAn)/(n + 1) = (%ld + %llu * %LF)/%llu\n", runNames[idx], tau.tv_nsec, counts[idx], rollingTimeAvgs[idx], counts[idx] + 1);
     rollingTimeAvgs[idx] = ((long double) tau.tv_nsec + (long double) counts[idx] * rollingTimeAvgs[idx]) / (long double) ++counts[idx];
-//    timeDiffSums[idx] += tau.tv_nsec;
-    //printf("curr avg %Lf\n", rollingTimeAvgs[idx]);
-
-    //printf("%llu: %ld.%.9ldns %LF\n", counts[idx]-1, tau.tv_sec, tau.tv_nsec, rollingTimeAvgs[idx]);
 }
 
 uint8_t timeFunD(timedFunD fun, double s, int i) {
@@ -95,6 +90,5 @@ void printTimedRuns(char **runNames, uint32_t length) {
     for (j = 0; j < length; ++j) {
         const char *runName = runNames[j];
         printf("%sAverage time: %Lf ns\n", runName, rollingTimeAvgs[j]);
-//        printf("%sAverage time: %Lf ns\n", runName, (long double) timeDiffSums[j] / *counts);
     }
 }
