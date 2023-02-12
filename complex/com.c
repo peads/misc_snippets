@@ -23,8 +23,9 @@
 #include <stdint.h>
 
 #define TIMING_RUNS 4
-
+#include <assert.h>
 #include "timed_functions.h"
+uint8_t DEBUG = 0;
 
 struct complexArgs {
     int ar;
@@ -120,6 +121,8 @@ static void calcAtan2(void *args, double *result) {
 
 static void mult(int ar, int aj, int br, int bj/*, int *vr, int *vj*/) {
 
+    static long double maxAvgErr = -1.0;
+    long double avgError;
     struct complexArgs cargs;
     double results[TIMING_RUNS];
 
@@ -133,37 +136,52 @@ static void mult(int ar, int aj, int br, int bj/*, int *vr, int *vj*/) {
     timeFun((timedFun) calcVect, &cargs, (void *)&results, 2);
     timeFun((timedFun) calcVectPd, &cargs, (void *)&results, 3);
 
-    char *runNames[TIMING_RUNS]
-            = {"calcAtan2 :: ", "calcAcos :: ", "calcVect :: ", "caclVectPd :: "};
+    long double errs[4] = {results[0]-results[1],
+                           results[0]-results[2],
+                           results[0]-results[3]};
 
-    printf("(%d + %di) . (%d + %di) = (%d + %di) angle: %f, %f, %f, %f \n",
-           ar, aj,
-           br, bj,
-           ar * br - aj * bj,
-           aj * br + ar * bj,
-           results[0], results[1], results[2], results[3]);
+    if (DEBUG) {
+        avgError = errs[0];
+        avgError *= errs[1];
+        avgError *= errs[2];
+        avgError = cbrtl(avgError);
+//    avgError += errs[1];
+//    avgError += errs[2];
+//    avgError /= 4.0;
+        maxAvgErr = avgError > maxAvgErr ? avgError : maxAvgErr;
 
-    printTimedRuns(runNames, TIMING_RUNS);
-
-    // printf("%f %f %f %f\n", u.vect[0], u.vect[1], u.vect[2], u.vect[3]);
-    //printf("%f %f %f %f\n", v.vect[0], v.vect[1], v.vect[2], v.vect[3]);
-
-    // __m256d v = _mm256_mul_pd(u.vect, v.vect);
-    // v = _mm256_hadd_pd(v, v);
-    // v = _mm256_mul_pd(v, v);
-    // v = _mm256_add_pd(v, v);
-    //v = _mm256_sqrt_pd(v);
-
-
-    //__m128d zr = _mm_mul_pd(u.vect, v.vect);
-    //__m128d zj = _mm_mul_pd(_mm_shuffle_pd(u.vect, u.vect, _MM_SHUFFLE2(0,1)), v.vect);
+        printf("(%d + %di) . (%d + %di) = (%d + %di) angle: %f, %f, %f, %f "
+               "max avg error: %Le\n",
+               ar, aj,
+               br, bj,
+               ar * br - aj * bj,
+               aj * br + ar * bj,
+               results[0], results[1], results[2], results[3],
+               maxAvgErr);
+    }
+    assert(errs[0] < 1e-14 && errs[1] < 1e-14 && errs[2] < 1e-14);
 }
 
-int main() {
+int main(const int argc, const char **argv) {
+
+    if (argc > 1) {
+        DEBUG = 'v' == argv[1][0];
+    }
+
+    int i,j,k,m;
+    for (i = 1; i < 32; ++i)
+        for (j = 1; j < 32; ++j)
+            for (k = 1; k < 32; ++k)
+                for (m = 1; m < 32; ++m)
+                    mult(i,j,k,m);
 
     mult((int16_t) 1, (int16_t) 2, (int16_t) 3, (int16_t) 4);
     mult(5, 6, 7, 8);
     mult(9, 10, 11, 12);
+
+    char *runNames[TIMING_RUNS]
+            = {"calcAtan2 :: ", "calcAcos :: ", "calcVect :: ", "caclVectPd :: "};
+    printTimedRuns(runNames, TIMING_RUNS);
 
     return 0;
 }
