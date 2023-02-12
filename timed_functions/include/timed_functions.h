@@ -32,7 +32,7 @@ typedef uint8_t (*timedFunF)(float n);
 typedef uint8_t (*timedFunD)(double n);
 typedef void (*timedFun)(void *n, void *result);
 
-long double rollingTimeAvgs[TIMING_RUNS];
+static long double rollingTimeAvgs[TIMING_RUNS];
 
 static void findDeltaTime(int idx, const struct timespec *tstart, const struct timespec *tend);
 //uint8_t timeFunD(timedFunD fun, double s, int i);
