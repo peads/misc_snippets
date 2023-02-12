@@ -9,8 +9,9 @@
 #define TIMING_RUNS 4
 typedef double (*timedFunD)(int ar, int aj, int br, int bj);
 
+static long double errDiffSums[TIMING_RUNS] = {0, 0, 0, 0};
 static time_t rollingTimeSums[TIMING_RUNS];
-static long runCount = 0;
+static unsigned long long runCount = 0;
 
 static void findDeltaTime(int idx, struct timespec tstart, struct timespec tend, char *timediff) {
     time_t deltaTsec = tend.tv_sec - tstart.tv_sec;
@@ -134,20 +135,19 @@ static void mult(int ar, int aj, int br, int bj/*, int *vr, int *vj*/) {
         timeFunD(calcVect,ar,aj,br,bj,2),
         timeFunD(calcVectPd,ar,aj,br,bj,3)
     };
-    char *runNames[TIMING_RUNS] 
-        = {"calcAtan2 :: ", "calcAcos :: ", "calcVect :: ", "caclVectPd :: "};
 
-    printf("(%d + %di) . (%d + %di) = (%d + %di) angle: %f, %f, %f, %f \n", 
-        ar, aj, 
-        br, bj,
-        ar * br - aj * bj,
-        aj * br + ar * bj,
-        results[0], results[1], results[2], results[3]);
+    errDiffSums[0] += fabs(results[1]-results[0]);
+    errDiffSums[1] += fabs(results[2]-results[0]);
+    errDiffSums[2] += fabs(results[3]-results[0]);
 
-    for (; j < TIMING_RUNS; ++j){
-        const char *runName = runNames[j];
-        printf("%sAverage time: %ld ns\n", runName, rollingTimeSums[j]/runCount);
-    }
+    
+
+    //printf("(%d + %di) . (%d + %di) = (%d + %di) angle: %f, %f, %f, %f \n", 
+   //     ar, aj, 
+   //     br, bj,
+   //     ar * br - aj * bj,
+   //     aj * br + ar * bj,
+   //     results[0], results[1], results[2], results[3]);
 
    // printf("%f %f %f %f\n", u.vect[0], u.vect[1], u.vect[2], u.vect[3]);
     //printf("%f %f %f %f\n", v.vect[0], v.vect[1], v.vect[2], v.vect[3]);
@@ -165,20 +165,25 @@ static void mult(int ar, int aj, int br, int bj/*, int *vr, int *vj*/) {
 
 int main()
 {
+    char *runNames[TIMING_RUNS] 
+        = {"calcAtan2 :: ", "calcAcos :: ", "calcVect :: ", "caclVectPd :: "};
 
-    int i[4];
-    for (i[0] = 0; i[0] < 10; ++i[0]) {
-        for (i[1] = 0; i[1] < 10; ++i[1]) {
-            for (i[2] = 0; i[2] < 10; ++i[2]) {
-                for (i[3] = 0; i[3] < 10; ++i[3]) {
+    int j, i[4];
+    for (i[0] = -64; i[0] < 64; ++i[0]) {
+        for (i[1] = -64; i[1] < 64; ++i[1]) {
+            for (i[2] = -64; i[2] < 64; ++i[2]) {
+                for (i[3] = -64; i[3] < 64; ++i[3]) {
                     mult(i[0],i[1],i[2],i[3]);
                 }
+            }
+            for (j = 0; j < TIMING_RUNS; ++j){
+                const char *runName = runNames[j];
+                printf("%sAverage time: %lld ns\n", runName, rollingTimeSums[j]/runCount);
             }
         }
     }
 
-    mult(5,6,7,8);
-    mult(9,10,11,12);
-
+    
+    printf("error %Lf %Lf %Lf\n",  errDiffSums[1]/runCount,  errDiffSums[2]/runCount,  errDiffSums[3]/runCount);
     return 0;
 }
