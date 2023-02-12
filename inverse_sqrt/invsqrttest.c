@@ -19,6 +19,8 @@
 #include <time.h>
 #include <stdlib.h>
 #include <math.h>
+#define TIMING_RUNS 2
+#include "timed_functions.h"
 
 #if defined(__x86_64__) || defined(_M_X64)
 ///return "x86_64";
@@ -28,36 +30,21 @@
 #define X86
 #endif
 
-static time_t rollingTimeSums[5];
+void invSqrt(float *x) {
 
-void findDeltaTime(int idx, struct timespec tstart, struct timespec tend, char *timediff) {
-    time_t deltaTsec = tend.tv_sec - tstart.tv_sec;
-    time_t deltaTNanos = tend.tv_nsec - tstart.tv_nsec;
-
-    if (deltaTsec > 0) {
-        sprintf(timediff, "%lu.%lu s",deltaTsec, deltaTNanos);
-    } else {
-        sprintf(timediff, "%lu ns", deltaTNanos);
-        rollingTimeSums[idx] += deltaTNanos;
-        //printf("%s\n", timediff);
-    }
-}
-
-float invSqrt(float x) {
-
-    float xhalf = 0.5f * x;
-    int i = *(int*)&x;            // store floating-point bits in integer
+    float xhalf = 0.5f * *x;
+    int i = *(int*)x;            // store floating-point bits in integer
     i = 0x5f3759df - (i >> 1);    // initial guess for Newton's method
-    x = *(float*)&i;              // convert new bits into float
-    x = x*(1.5f - xhalf*x*x);     // One round of Newton's method
-
-    return x;
+    *x = *(float*)&i;              // convert new bits into float
+    *x = *x*(1.5f - xhalf**x**x);     // One round of Newton's method
 }
 
-float asmInvSqrt(float x) {
+void asmInvSqrt(float *result) {
 
     const float half = 0.5f;
     const float threeHavles = 1.5f;
+
+    float x = *result;
 
     __asm__ __volatile__(
 #ifndef X86
@@ -105,61 +92,35 @@ float asmInvSqrt(float x) {
         "fmulp\n\t"
         "fstps %0\n\t"
 #endif
-        : "+m" (x) 
+        : "+m" (x)
         : "m" (half), "m" (threeHavles)
         : "memory"
     );
 
-    return x;
-}
-
-float timeAsmInvSqrt(float s) {
-    struct timespec tstart, tend;
-    clock_gettime(CLOCK_MONOTONIC, &tstart);
-
-    s = asmInvSqrt(s);
-
-    clock_gettime(CLOCK_MONOTONIC, &tend);
-    char *timediff = malloc(256);
-    findDeltaTime(0, tstart, tend, timediff);
-
-    free(timediff);
-
-    return s;
-}
-
-float timeInvSqrt(float s) {
-    struct timespec tstart, tend;
-    clock_gettime(CLOCK_MONOTONIC, &tstart);
-
-    s = invSqrt(s);;
-
-    clock_gettime(CLOCK_MONOTONIC, &tend);
-    char *timediff = malloc(256);
-    findDeltaTime(1, tstart, tend, timediff);
-
-    free(timediff);
-
-    return s;
+    *result = x;
 }
 
 int main(void) {
 
     float f = 1.0f;
-    long i, cnt;
-    double d = 0.;
+    uint64_t cnt;
+    long double d = 0.;
 
-    for (cnt = 0; cnt < 10e6; cnt++, f+=0.0000001f){
-        float a = timeInvSqrt(f);
-        float b = timeAsmInvSqrt(f);
+    for (cnt = 0; cnt < (1<<25); cnt++, f+=0.0001f){
+
+        float a, b;
+        a = b = f;
+        timeFun((timedFun) invSqrt, &a, NULL, 0);
+        timeFun((timedFun) asmInvSqrt, &b, NULL, 0);
         //printf("sqrt[%f] = %f %f\n", f, a, b);
-        d += fabs(a - b);
+        d += fabsf(fabsf(a) - fabsf(b));
     }
+    char *runNames[2]
+            = {"carmack :: ", "asm :: "};
 
-    printf("Carmack avg ns: %f,  asm avg ns: %f\navg delta: %f\n", 
-        (float) rollingTimeSums[0] / cnt, 
-        (float) rollingTimeSums[1] / cnt,
-        d / cnt);
+    printTimedRuns(runNames, TIMING_RUNS);
+    d /= (long double) cnt;
+    printf("\navg delta: %Le\n", d);
     return 0;
 }
 
