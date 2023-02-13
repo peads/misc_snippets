@@ -1,0 +1,2 @@
+/usr/bin/ar qc libtimed_functions.a CMakeFiles/timed_functions.dir/src/timed_functions.c.o
+/usr/bin/ranlib libtimed_functions.a

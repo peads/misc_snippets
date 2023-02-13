@@ -1,0 +1,1 @@
+/usr/bin/cc  -march=native CMakeFiles/complex.dir/com.c.o -o complex  -lm ../timed_functions/libtimed_functions.a 

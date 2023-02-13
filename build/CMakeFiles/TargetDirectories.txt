@@ -1,0 +1,14 @@
+/home/peads/misc_snippets/build/CMakeFiles/edit_cache.dir
+/home/peads/misc_snippets/build/CMakeFiles/rebuild_cache.dir
+/home/peads/misc_snippets/build/inverse_sqrt/CMakeFiles/inverse_sqrt.dir
+/home/peads/misc_snippets/build/inverse_sqrt/CMakeFiles/edit_cache.dir
+/home/peads/misc_snippets/build/inverse_sqrt/CMakeFiles/rebuild_cache.dir
+/home/peads/misc_snippets/build/sqrt/CMakeFiles/sqrt.dir
+/home/peads/misc_snippets/build/sqrt/CMakeFiles/edit_cache.dir
+/home/peads/misc_snippets/build/sqrt/CMakeFiles/rebuild_cache.dir
+/home/peads/misc_snippets/build/complex/CMakeFiles/complex.dir
+/home/peads/misc_snippets/build/complex/CMakeFiles/edit_cache.dir
+/home/peads/misc_snippets/build/complex/CMakeFiles/rebuild_cache.dir
+/home/peads/misc_snippets/build/timed_functions/CMakeFiles/timed_functions.dir
+/home/peads/misc_snippets/build/timed_functions/CMakeFiles/edit_cache.dir
+/home/peads/misc_snippets/build/timed_functions/CMakeFiles/rebuild_cache.dir
