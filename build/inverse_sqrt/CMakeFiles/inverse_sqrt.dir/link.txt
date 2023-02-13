@@ -1,1 +1,0 @@
-/usr/bin/cc  -march=native CMakeFiles/inverse_sqrt.dir/invsqrttest.c.o -o inverse_sqrt  ../timed_functions/libtimed_functions.a 

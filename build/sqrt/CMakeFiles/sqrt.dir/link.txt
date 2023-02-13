@@ -1,1 +1,0 @@
-/usr/bin/cc  -march=native CMakeFiles/sqrt.dir/sqrttests.c.o -o sqrt  -lm 
