@@ -29,7 +29,12 @@
 #define MAX_ITERATIONS 128
 #define MAX_ERROR 1e-12
 
-uint8_t DEBUG = 0;
+typedef double (*phaseFun)(double vr, double vj);
+
+struct phaseArgs {
+    struct complexArgs *cargs;
+    phaseFun fun;
+};
 
 struct complexArgs {
     double ar;
@@ -42,14 +47,40 @@ union vect {
     __m256d vect;
 };
 
+struct {
+    uint64_t totalErrors;
+    long double maxAvgErr;
+    long double namesWorst;
+    char *name;
+} errorInfo;
+
+int8_t DEBUG = 0;
 const char *runNames[TIMING_RUNS]
         = {"calcAtan2 :: ", "calcAsin :: ", 
             "calcVect :: ", "caclVectPd :: "};//, "esbensen :: "};
 
-static double norm(double x, double y) {
+static inline double norm(double x, double y) {
 
-    return sqrt(x * x + y * y);
+    return sqrt(x*x + y*y);
 }
+
+static inline void multiply(double xr, double xj, 
+                            double yr, double yj, 
+                            double *resultR, double *resultJ) {
+    *resultR = xr*xr - yr*yj;
+    *resultJ = xr*yj + xj*yr;
+}
+
+static inline double lambdaAsin(double vr, double vj) {
+
+    return asin(vr / norm(vr, vj));
+}
+
+static inline double lambdaAtan2(double vr, double vj) {
+
+    return atan2(vr, vj);
+}
+
 
 static void calcVectPd(void *args, double *result) {
 
@@ -106,64 +137,69 @@ static void calcVect(void *args, double *result) {
     *result = asin(zr / r);
 }
 
+static void calcResult(struct phaseArgs *pargs, double *result) {
+    
+    struct complexArgs *cargs = pargs->cargs;
+
+    double vr;// = cargs->ar * cargs->br - cargs->aj * cargs->bj;
+    double vj;// = cargs->aj * cargs->br + cargs->ar * cargs->bj;
+
+    multiply(cargs->ar, cargs->aj, cargs->br, cargs->bj, &vr, &vj);
+
+    *result = pargs->fun(vr, vj);    
+}
+
 static void calcAsin(void *args, double *result) {
 
     struct complexArgs *cargs = args;
+    struct phaseArgs pargs;
+    pargs.cargs = cargs;
+    pargs.fun = lambdaAsin;
 
-    double vr = cargs->ar * cargs->br - cargs->aj * cargs->bj;
-    double vj = cargs->aj * cargs->br + cargs->ar * cargs->bj;
-    double vnorm = norm(vr, vj);
-
-    *result = asin(vr / vnorm);
+    calcResult(&pargs, result);
 }
 
 static void calcAtan2(void *args, double *result) {
 
     struct complexArgs *cargs = args;
+    struct phaseArgs pargs;
+    pargs.cargs = cargs;
+    pargs.fun = lambdaAtan2;
 
-    double vr = cargs->ar * cargs->br - cargs->aj * cargs->bj;
-    double vj = cargs->aj * cargs->br + cargs->ar * cargs->bj;
-
-    *result = atan2((double) vr, (double) vj);
+    calcResult(&pargs, result);
 }
 
-void esbensen(void *args, double *result)
-/*
-  input signal: s(t) = a*exp(-i*w*t+p)
-  a = amplitude, w = angular freq, p = phase difference
-  solve w
-  s' = -i(w)*a*exp(-i*w*t+p)
-  s'*conj(s) = -i*w*a*a
-  s'*conj(s) / |s|^2 = -i*w
-*/
-{
+//void esbensen(void *args, double *result)
+///*
+//  input signal: s(t) = a*exp(-i*w*t+p)
+//  a = amplitude, w = angular freq, p = phase difference
+//  solve w
+//  s' = -i(w)*a*exp(-i*w*t+p)
+//  s'*conj(s) = -i*w*a*a
+//  s'*conj(s) / |s|^2 = -i*w
+//*/
+//{
+//
+//    const int32_t scaled_pi = 2608;// 1<<14 / (2*pi) */
+//    struct complexArgs *cargs = args;
+//
+//    int cj, dr, dj;
+//    int br = (int) cargs->br;
+//    int ar = (int) cargs->ar;
+//    int bj = (int) cargs->bj;
+//    int aj = (int) cargs->aj;
+//
+//    dr = (br - ar) << 1;
+//    dj = (bj - aj) << 1;
+//    cj = bj * dr - br * dj; /* imag(ds*conj(s)) */
+//
+//    int32_t denom = ar*ar + aj*aj + 1;
+//    printf("dr = %d dj = %d cj = %d dividing %d * %d / %d\n", dr, dj, cj, scaled_pi, cj, denom);
+//    double d = (double) cj / denom;
+//
+//    *result = sin(scaled_pi * d) / 2.0;
+//}
 
-    const int32_t scaled_pi = 2608;// 1<<14 / (2*pi) */
-    struct complexArgs *cargs = args;
-
-    int cj, dr, dj;
-    int br = (int) cargs->br;
-    int ar = (int) cargs->ar;
-    int bj = (int) cargs->bj;
-    int aj = (int) cargs->aj;
-
-    dr = (br - ar) << 1;
-    dj = (bj - aj) << 1;
-    cj = bj * dr - br * dj; /* imag(ds*conj(s)) */
-
-    int32_t denom = ar*ar + aj*aj + 1;
-    printf("dr = %d dj = %d cj = %d dividing %d * %d / %d\n", dr, dj, cj, scaled_pi, cj, denom);
-    double d = (double) cj / denom;
-
-    *result = sin(scaled_pi * d) / 2.0;
-}
-
-struct {
-    long double maxAvgErr;
-    char *name;
-} errorInfo;
-
-uint64_t totalErrors = 0;
 static void mult(double ar, double aj, double br, double bj/*, int *vr, int *vj*/) {
 
     long double avgError;
@@ -199,27 +235,31 @@ static void mult(double ar, double aj, double br, double bj/*, int *vr, int *vj*
       //  maxAvgErr = avgError > maxAvgErr ? avgError : maxAvgErr;
     if (avgError > errorInfo.maxAvgErr) {
         errorInfo.maxAvgErr = avgError;
+    }
+
+    if (    errs[0] >= MAX_ERROR 
+        ||  errs[1] >= MAX_ERROR 
+        ||  errs[2] >= MAX_ERROR) {
+ 
         for (localMaxIdx = -1, localMax = -1.0, i = 0; i < 3; ++i) {
             if (errs[i] > localMax) {
                 localMax = errs[i];
                 errorInfo.name = runNames[i+1];
+                errorInfo.namesWorst = localMax;
             }
         }
-    }
 
-    if (DEBUG 
-        || errs[0] != 0.0 && errs[0] >= MAX_ERROR 
-        || errs[1] != 0.0 && errs[1] >= MAX_ERROR 
-        || errs[2] != 0.0 && errs[2] >= MAX_ERROR) {
-        printf("(%f + %fi) . (%f + %fi) = (%f + %fi) angle: %f, %f, %f, %f "
-               "err1: %Le, err2: %Le, err3: %Le cause: %s\n",
+        if (DEBUG > -1) printf("(%f + %fi) . (%f + %fi) = (%f+ %fi)\n"
+            "phase: %f, %f, %f, %f\n"
+            "errAsin: %Le, errVect: %Le, errVectPd: %Le\n"
+            "cause: %s %Le\n",
                ar, aj,
                br, bj,
                ar * br - aj * bj,
                aj * br + ar * bj,
                results[0], results[1], results[2], results[3], //results[4],
-               errs[0], errs[1], errs[2], errorInfo.name);
-        totalErrors++;
+               errs[0], errs[1], errs[2], errorInfo.name, errorInfo.namesWorst);
+        errorInfo.totalErrors++;
     }
 
 //    assert(errs[0] < MAX_ERROR && errs[1] < MAX_ERROR && errs[2] < MAX_ERROR);
@@ -228,16 +268,27 @@ static void mult(double ar, double aj, double br, double bj/*, int *vr, int *vj*
 int main(const int argc, const char **argv) {
 
     if (argc > 1) {
-        DEBUG = 'v' == argv[1][0];
+        switch (argv[1][0]) {
+            case 'v':
+                DEBUG = 1;
+                break;
+            case 'q':
+                DEBUG = -1;
+            default:
+                break;
+        }
     }
+    errorInfo.totalErrors = 0;
+    errorInfo.namesWorst = -1.0;
     errorInfo.maxAvgErr = -1.0;
     uint32_t i,j,k,m;
     double f,n,p,q;
-    for (i = 1, f = -10.0; i < MAX_ITERATIONS; ++i, f += 0.01) {
-        for (j = 1, n = -10.0; j < MAX_ITERATIONS; ++j, n += 0.01) {
-            for (k = 1, p = -10.0; k < MAX_ITERATIONS; ++k, p += 0.01) {
-                for (m = 1, q = -10.0; m < MAX_ITERATIONS; ++m, p += 0.01) {
-                    if (0.0 == f || 0.0 == n) continue;
+    for (i = 1, f = -10.0; i < MAX_ITERATIONS; ++i,             f += 0.0001) {
+        for (j = 1, n = -10.0; j < MAX_ITERATIONS; ++j,         n += 0.0001) {
+            for (k = 1, p = -10.0; k < MAX_ITERATIONS; ++k,     p += 0.0001) {
+                if (0.0 == f && 0.0 == p) continue;
+                for (m = 1, q = -10.0; m < MAX_ITERATIONS; ++m, q += 0.0001) {
+                    if (0.0 == n && f == -p) continue;
                     //mult(i,j,k,m);
                     mult(f,n,p,q);
                 }
@@ -250,7 +301,9 @@ int main(const int argc, const char **argv) {
     mult(9, 10, 11, 12);
 
     printTimedRuns(runNames, TIMING_RUNS);
-    printf("Worst: %s, Max avg error: %Le, total above threshold: %lu, total calculations: %lu\n", 
-        errorInfo.name, errorInfo.maxAvgErr, totalErrors, MAX_ITERATIONS*MAX_ITERATIONS*MAX_ITERATIONS*MAX_ITERATIONS);
+    printf( "Worst: %s %Le\n"
+            "Max avg error: %Le, total above threshold: %lu, total calculations: %lu\n", 
+        errorInfo.name, errorInfo.namesWorst, errorInfo.maxAvgErr, errorInfo.totalErrors, 
+        MAX_ITERATIONS*MAX_ITERATIONS*MAX_ITERATIONS*MAX_ITERATIONS);
     return 0;
 }
