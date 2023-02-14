@@ -18,7 +18,7 @@
 #ifndef DICKING_ABOUT_TIMED_FUNCTIONS_H
 #define DICKING_ABOUT_TIMED_FUNCTIONS_H
 #ifndef TIMING_RUNS
-    #define TIMING_RUNS 4
+    #define TIMING_RUNS 8
 #endif
 #include <stdio.h>
 #include <stdlib.h>

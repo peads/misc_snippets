@@ -27,11 +27,11 @@
 #include "timed_functions.h"
 
 #define MAX_ITERATIONS 16
-#define MAX_ERROR 1e-16
+#define MAX_ERROR 1e-15L
 #define _mm_mul_pi32(u1, v1) _mm_mulhi_pi16(u1, v1) << 16 | _mm_mullo_pi16(u1, v1)
 #define _mm_extract_pi32(u0, n) _mm_extract_pi16(u0, n) << 16 | _mm_extract_pi16(u0, n-1)
 
-int8_t DEBUG = 1;
+int8_t DEBUG = 0;
 
 typedef double (*phaseFun)(double vr, double vj);
 
@@ -47,20 +47,18 @@ struct complexArgs {
     int bj;
 };
 
-union vect {
-    __m256d vect;
-};
-
 struct {
     uint64_t totalErrors;
     long double maxAvgErr;
     long double namesWorst;
-    char *name;
+    const char *name;
 } errorInfo;
 
+static long double absRes;
+
 const char *runNames[TIMING_RUNS]
-        = {"calcAtan2 :: ", "calcAsin :: ", 
-            "calcVect :: ", "caclVectPd :: "};//, "esbensen :: "};
+        = {"calcAtan2 :: ", "calcVectPd :: ",
+            "polarAvx16 :: ", "caclVect :: "};//, "esbensen :: "};
 
 static inline double norm(double x, double y) {
 
@@ -86,6 +84,9 @@ static inline double lambdaAtan2(double vr, double vj) {
 
 
 static void calcVectPd(struct complexArgs *cargs, double *result) {
+    union vect {
+        __m256d vect;
+    };
 
     union vect u = {cargs->ar, cargs->aj, cargs->ar, cargs->br};
     union vect v = {cargs->br, cargs->bj, cargs->bj, cargs->aj};
@@ -101,10 +102,13 @@ static void calcVectPd(struct complexArgs *cargs, double *result) {
     u.vect = _mm256_sqrt_pd(u.vect);
 
     *result = asin(zr / u.vect[0]);
+    if (DEBUG > 0) printf("calcVectPd ::\t\tphase: %f zr: %f, r: %f\n", *result, zr, u.vect[0]);
+    assert(fabsl(absRes - fabsl(*result)) < MAX_ERROR);
 }
 
-static void polarAvx16(struct complexArgs *cargs, double *result) {
+static void polarAvx16(void *args, double *result) {
 
+    struct complexArgs *cargs = args;
 
     double zr;
     double r;
@@ -134,7 +138,10 @@ static void polarAvx16(struct complexArgs *cargs, double *result) {
     r = sqrt(_mm_extract_pi32(u0, 1));//_mm_extract_pi16(u0, 0);
     *result = asin(zr / r);
 
-    if (DEBUG > 0)  printf("polarAvx16 :: phase: %f zr: %f, r: %f\n", *result, zr, r);
+    if (DEBUG > 0) {
+
+        printf("polarAvx16 ::\t\tphase: %f zr: %f, r: %f\n", *result, zr, r);
+    }
 }
 
 static void calcVect(void *args, double *result) {
@@ -172,7 +179,8 @@ static void calcVect(void *args, double *result) {
     r = sqrt(u0.vect[1]);
     *result = asin(zr / r);
 
-    if (DEBUG > 0) printf("calcVect :: phase: %f zr: %f, r: %f\n", *result, zr, r);
+    if (DEBUG > 0) printf("calcVect ::\t\t\tphase: %f zr: %f, r: %f\n", *result, zr, r);
+    assert(fabsl(absRes - fabsl(*result)) < MAX_ERROR);
 }
 
 static void calcResult(struct phaseArgs *pargs, double *result) {
@@ -186,7 +194,7 @@ static void calcResult(struct phaseArgs *pargs, double *result) {
 
     *result = pargs->fun(vr, vj);
 
-    if (DEBUG > 0) printf("calcAsin/Atan2 :: phase: %f zr: %f, r: %f\n", *result, vr, sqrt(vr*vr + vj*vj));
+    if (DEBUG > 0) printf("calcAsin/Atan2 ::\tphase: %f zr: %f, r: %f\n", *result, vr, sqrt(vr*vr + vj*vj));
 }
 
 static void calcAsin(void *args, double *result) {
@@ -197,6 +205,7 @@ static void calcAsin(void *args, double *result) {
     pargs.fun = lambdaAsin;
 
     calcResult(&pargs, result);
+    assert(fabsl(absRes - fabsl(*result)) < MAX_ERROR);
 }
 
 static void calcAtan2(void *args, double *result) {
@@ -207,6 +216,7 @@ static void calcAtan2(void *args, double *result) {
     pargs.fun = lambdaAtan2;
 
     calcResult(&pargs, result);
+    absRes = fabsl(*result);
 }
 
 //void esbensen(void *args, double *result)
@@ -242,11 +252,11 @@ static void calcAtan2(void *args, double *result) {
 
 static void mult(int ar, int aj, int br, int bj/*, int *vr, int *vj*/) {
 
-    long double avgError;
-    long double localMax; 
+//    long double avgError;
+//    long double localMax;
     struct complexArgs cargs;
     double results[TIMING_RUNS];
-    uint32_t i, localMaxIdx;
+    uint32_t i;
 
     cargs.aj = aj;
     cargs.ar = ar;
@@ -254,56 +264,46 @@ static void mult(int ar, int aj, int br, int bj/*, int *vr, int *vj*/) {
     cargs.bj = bj;
 
     timeFun((timedFun) calcAtan2, &cargs, (void *) &results, 0);
-    timeFun((timedFun) calcAsin, &cargs, (void *) &results, 1);
+    timeFun((timedFun) calcVectPd, &cargs, (void *) &results, 1);
     timeFun((timedFun) polarAvx16, &cargs, (void *) &results, 2);
     timeFun((timedFun) calcVect, &cargs, (void *) &results, 3);
 //    timeFun((timedFun) esbensen, &cargs, (void *)&results, 4);
+//    long double errs[TIMING_RUNS - 1] = {absRes-fabsl(results[1]),
+//                           absRes-fabsl(results[2]),
+//                           absRes-fabsl(results[3]),
+//                           };//results[0]-results[4]};
 
-    long double absRes = fabs(results[0]);
-    long double errs[3] = {absRes-fabs(results[1]),
-                           absRes-fabs(results[2]),
-                           absRes-fabs(results[3]),
-                           };//results[0]-results[4]};
+//    avgError = errs[0];
+//    avgError *= errs[1];
+//    avgError *= errs[2];
+//    avgError = cbrtl(avgError);
 
-    avgError = errs[0];
-    avgError *= errs[1];
-    avgError *= errs[2];
-    avgError = cbrtl(avgError);
-//    avgError += errs[1];
-//    avgError += errs[2];
-//    avgError /= 4.0;
-      //  maxAvgErr = avgError > maxAvgErr ? avgError : maxAvgErr;
-    if (avgError > errorInfo.maxAvgErr) {
-        errorInfo.maxAvgErr = avgError;
-    }
-
-//    if (    errs[0] >= MAX_ERROR
-//        ||  errs[1] >= MAX_ERROR
-//        ||  errs[2] >= MAX_ERROR) {
- 
-        for (localMax = -1.0, i = 0; i < 3; ++i) {
-            if (errs[i] > localMax) {
-                localMax = errs[i];
-                errorInfo.name = runNames[i+1];
-                errorInfo.namesWorst = localMax;
-//                errorInfo.totalErrors++;
-            }
-        }
-
-//    double zr, zj;
-//    multiply(ar, aj, br, bj, &zr, &zj);
-//        if (DEBUG > -1)
-//    printf("(%d + %di) . (%d + %di) = (%f+ %fi)\n"
-//           "phase: %f, %f, %f, %f\n",
-//           ar, aj,
-//           br, bj,
-//           zr, zj,
-//           results[0], results[1], results[2], results[3]);//, //results[4],
-//               errs[0], errs[1], errs[2], errorInfo.name, errorInfo.namesWorst);
-//        errorInfo.totalErrors++;
+//    if (avgError > errorInfo.maxAvgErr) {
+//        errorInfo.maxAvgErr = avgError;
 //    }
+//
+//        for (localMax = -1.0, i = 0; i < 3; ++i) {
+//            if (errs[i] > localMax) {
+//                localMax = errs[i];
+//                errorInfo.name = runNames[i+1];
+//                errorInfo.namesWorst = localMax;
+////                errorInfo.totalErrors++;
+//            }
+//        }
 
-//    assert(errs[0] < MAX_ERROR && errs[1] < MAX_ERROR && errs[2] < MAX_ERROR);
+    if (DEBUG > -1) {
+        double zr, zj;
+        multiply(ar, aj, br, bj, &zr, &zj);
+        printf("(%d + %di) . (%d + %di) = (%f + %fi)\n"
+               "phase: %f, %f, %f, %f\n",
+               ar, aj,
+               br, bj,
+               zr, zj,
+               results[0], results[1], results[2], results[3]);
+
+    }
+//    if (DEBUG > 0) printf("Max error tolerance: %LE, %s%LE\n", MAX_ERROR, errorInfo.name, errorInfo.namesWorst);
+//    assert(/*errs[0] < MAX_ERROR &&*/ errs[1] < MAX_ERROR && errs[2] < MAX_ERROR);
 }
 
 int main(const int argc, const char **argv) {
@@ -328,9 +328,9 @@ int main(const int argc, const char **argv) {
     for (i = 1, f = -10.0; i < MAX_ITERATIONS; ++i,             f += 0.01) {
         for (j = 1, n = -10.0; j < MAX_ITERATIONS; ++j,         n += 0.01) {
             for (k = 1, p = -10.0; k < MAX_ITERATIONS; ++k,     p += 0.01) {
-                if (0.0 == f && 0.0 == p) continue;
+                if (0 == i && 0 == k) continue;
                 for (m = 1, q = -10.0; m < MAX_ITERATIONS; ++m, q += 0.01) {
-                    if (0.0 == n && f == -p) continue;
+                    if (0 == j && f == -k) continue;
                     mult(i,j,k,m);
                     //mult(f,n,p,q);
                 }

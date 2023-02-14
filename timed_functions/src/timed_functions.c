@@ -35,7 +35,8 @@ static void findDeltaTime(int idx, const struct timespec *tstart, const struct t
 
     timespec_diff(tend, tstart, &tau);
 
-    rollingTimeAvgs[idx] = ((long double) tau.tv_nsec + (long double) counts[idx] * rollingTimeAvgs[idx]) / (long double) ++counts[idx];
+    long double temp = ((long double) tau.tv_nsec + (long double) counts[idx] * rollingTimeAvgs[idx]) / (long double) ++counts[idx];
+    if (!isnan(temp)) rollingTimeAvgs[idx] = temp;
 }
 
 uint8_t timeFunD(timedFunD fun, double s, int i) {
