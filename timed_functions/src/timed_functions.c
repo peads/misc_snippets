@@ -78,7 +78,7 @@ void timeFun(timedFun fun, void *s, void **result, int i) {
 
     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-    fun(s, &(result[i]));
+    fun(s, result != NULL ? &(result[i]) : NULL);
 
     clock_gettime(CLOCK_MONOTONIC, &tend);
 
@@ -92,4 +92,15 @@ void printTimedRuns(char **runNames, uint32_t length) {
         const char *runName = runNames[j];
         printf("%sAverage time: %Lf ns\n", runName, rollingTimeAvgs[j]);
     }
+}
+
+int signum(double y) {
+
+    struct {
+        unDouble unf;
+        uint8_t signBit;
+        uint64_t abs;
+    } s = {{y}, s.unf.i >> 63, s.unf.i & DOUBLE_SIGN_MASK};
+
+    return s.abs ? s.signBit ? -1 : 1 : 0;
 }
