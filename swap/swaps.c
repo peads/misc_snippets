@@ -16,8 +16,8 @@
  */
 
 #define TIMING_RUNS 3
-#define MIN -10.0
-#define MAX 10.0
+#define MIN -1000.0
+#define MAX 1000.0
 #define STEP 0.1
 #define MAX_ERROR 1e-1
 
@@ -75,13 +75,13 @@ void runTest(void* args, ...) {
     sargs->fun(&sargs->x, &sargs->y);
 }
 
-void testIteration(struct swapArgs *args) {
+void testIteration(struct swapArgs *args, int runIndex) {
 
     double xx = args->x;
     double yy = args->y;
 
 //    runTest(args);
-    timeFun((timedFun) runTest, args, NULL, 0);
+    timeFun((timedFun) runTest, args, NULL, runIndex);
     assert(xx == args->y && yy == args->x);
 }
 
@@ -97,13 +97,13 @@ int main(void) {
         if ((*(uint64_t *)&args.x & *(uint64_t *)&args.y)) { // x and y not 0
 
             args.fun = swap;
-            testIteration(&args);
+            testIteration(&args, 0);
 
             args.fun = swap1;
-            testIteration(&args);
+            testIteration(&args, 1);
 
             args.fun = swap2;
-            testIteration(&args);
+            testIteration(&args, 2);
         }
 
         if (args.y >= MAX) {
