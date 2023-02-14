@@ -26,8 +26,12 @@
 #include <assert.h>
 #include "timed_functions.h"
 
-#define MAX_ITERATIONS 128
-#define MAX_ERROR 1e-12
+#define MAX_ITERATIONS 16
+#define MAX_ERROR 1e-16
+#define _mm_mul_pi32(u1, v1) _mm_mulhi_pi16(u1, v1) << 16 | _mm_mullo_pi16(u1, v1)
+#define _mm_extract_pi32(u0, n) _mm_extract_pi16(u0, n) << 16 | _mm_extract_pi16(u0, n-1)
+
+int8_t DEBUG = 1;
 
 typedef double (*phaseFun)(double vr, double vj);
 
@@ -37,10 +41,10 @@ struct phaseArgs {
 };
 
 struct complexArgs {
-    double ar;
-    double aj;
-    double br;
-    double bj;
+    int ar;
+    int aj;
+    int br;
+    int bj;
 };
 
 union vect {
@@ -54,7 +58,6 @@ struct {
     char *name;
 } errorInfo;
 
-int8_t DEBUG = 0;
 const char *runNames[TIMING_RUNS]
         = {"calcAtan2 :: ", "calcAsin :: ", 
             "calcVect :: ", "caclVectPd :: "};//, "esbensen :: "};
@@ -67,7 +70,7 @@ static inline double norm(double x, double y) {
 static inline void multiply(double xr, double xj, 
                             double yr, double yj, 
                             double *resultR, double *resultJ) {
-    *resultR = xr*xr - yr*yj;
+    *resultR = xr*yr - xj*yj;
     *resultJ = xr*yj + xj*yr;
 }
 
@@ -82,9 +85,8 @@ static inline double lambdaAtan2(double vr, double vj) {
 }
 
 
-static void calcVectPd(void *args, double *result) {
+static void calcVectPd(struct complexArgs *cargs, double *result) {
 
-    struct complexArgs *cargs = args;
     union vect u = {cargs->ar, cargs->aj, cargs->ar, cargs->br};
     union vect v = {cargs->br, cargs->bj, cargs->bj, cargs->aj};
 
@@ -99,6 +101,40 @@ static void calcVectPd(void *args, double *result) {
     u.vect = _mm256_sqrt_pd(u.vect);
 
     *result = asin(zr / u.vect[0]);
+}
+
+static void polarAvx16(struct complexArgs *cargs, double *result) {
+
+
+    double zr;
+    double r;
+    __m64 u1 = _mm_set_pi32(cargs->ar, cargs->ar);
+    __m64 v1 = _mm_set_pi32(cargs->br, cargs->bj);
+    __m64 u0 = _mm_set_pi32(cargs->aj, cargs->br);
+    __m64 v0 = _mm_set_pi32(cargs->bj, cargs->aj);
+
+    v1 = _mm_mul_pi32(u1, v1);
+    v0 = _mm_mul_pi32(u0, v0);
+
+    u1 = _mm_sub_pi32(v1, v0);
+    u0 = _mm_add_pi32(v1, v0);
+
+
+    zr = _mm_extract_pi32(u1, 3);//_mm_extract_pi16(u1, 3) << 16 | _mm_extract_pi16(u1, 2);
+//    zr = _m_pextrw(u1, 3) << 16 | _m_pextrw(u1, 2);
+//    zr = _mm_extract_pi16(u1, 1);
+//    zr = _m_pextrw(u1, 1);
+//    zr = _mm_extract_pi16(u1, 0);
+//    zr = _m_pextrw(u1, 0);
+
+    u0 = _mm_mul_pi32(u0, u0);
+    u1 = _mm_mul_pi32(u1, u1);
+    u0 = _mm_add_pi32(u0,_mm_shuffle_pi16(u1, _MM_SHUFFLE(1, 0, 1, 0)));
+
+    r = sqrt(_mm_extract_pi32(u0, 1));//_mm_extract_pi16(u0, 0);
+    *result = asin(zr / r);
+
+    if (DEBUG > 0)  printf("polarAvx16 :: phase: %f zr: %f, r: %f\n", *result, zr, r);
 }
 
 static void calcVect(void *args, double *result) {
@@ -135,6 +171,8 @@ static void calcVect(void *args, double *result) {
 
     r = sqrt(u0.vect[1]);
     *result = asin(zr / r);
+
+    if (DEBUG > 0) printf("calcVect :: phase: %f zr: %f, r: %f\n", *result, zr, r);
 }
 
 static void calcResult(struct phaseArgs *pargs, double *result) {
@@ -146,7 +184,9 @@ static void calcResult(struct phaseArgs *pargs, double *result) {
 
     multiply(cargs->ar, cargs->aj, cargs->br, cargs->bj, &vr, &vj);
 
-    *result = pargs->fun(vr, vj);    
+    *result = pargs->fun(vr, vj);
+
+    if (DEBUG > 0) printf("calcAsin/Atan2 :: phase: %f zr: %f, r: %f\n", *result, vr, sqrt(vr*vr + vj*vj));
 }
 
 static void calcAsin(void *args, double *result) {
@@ -200,7 +240,7 @@ static void calcAtan2(void *args, double *result) {
 //    *result = sin(scaled_pi * d) / 2.0;
 //}
 
-static void mult(double ar, double aj, double br, double bj/*, int *vr, int *vj*/) {
+static void mult(int ar, int aj, int br, int bj/*, int *vr, int *vj*/) {
 
     long double avgError;
     long double localMax; 
@@ -214,9 +254,9 @@ static void mult(double ar, double aj, double br, double bj/*, int *vr, int *vj*
     cargs.bj = bj;
 
     timeFun((timedFun) calcAtan2, &cargs, (void *) &results, 0);
-    timeFun((timedFun) calcAsin, &cargs, (void *)&results, 1);
-    timeFun((timedFun) calcVect, &cargs, (void *)&results, 2);
-    timeFun((timedFun) calcVectPd, &cargs, (void *)&results, 3);
+    timeFun((timedFun) calcAsin, &cargs, (void *) &results, 1);
+    timeFun((timedFun) polarAvx16, &cargs, (void *) &results, 2);
+    timeFun((timedFun) calcVect, &cargs, (void *) &results, 3);
 //    timeFun((timedFun) esbensen, &cargs, (void *)&results, 4);
 
     long double absRes = fabs(results[0]);
@@ -237,30 +277,31 @@ static void mult(double ar, double aj, double br, double bj/*, int *vr, int *vj*
         errorInfo.maxAvgErr = avgError;
     }
 
-    if (    errs[0] >= MAX_ERROR 
-        ||  errs[1] >= MAX_ERROR 
-        ||  errs[2] >= MAX_ERROR) {
+//    if (    errs[0] >= MAX_ERROR
+//        ||  errs[1] >= MAX_ERROR
+//        ||  errs[2] >= MAX_ERROR) {
  
-        for (localMaxIdx = -1, localMax = -1.0, i = 0; i < 3; ++i) {
+        for (localMax = -1.0, i = 0; i < 3; ++i) {
             if (errs[i] > localMax) {
                 localMax = errs[i];
                 errorInfo.name = runNames[i+1];
                 errorInfo.namesWorst = localMax;
+//                errorInfo.totalErrors++;
             }
         }
 
-        if (DEBUG > -1) printf("(%f + %fi) . (%f + %fi) = (%f+ %fi)\n"
-            "phase: %f, %f, %f, %f\n"
-            "errAsin: %Le, errVect: %Le, errVectPd: %Le\n"
-            "cause: %s %Le\n",
-               ar, aj,
-               br, bj,
-               ar * br - aj * bj,
-               aj * br + ar * bj,
-               results[0], results[1], results[2], results[3], //results[4],
-               errs[0], errs[1], errs[2], errorInfo.name, errorInfo.namesWorst);
-        errorInfo.totalErrors++;
-    }
+//    double zr, zj;
+//    multiply(ar, aj, br, bj, &zr, &zj);
+//        if (DEBUG > -1)
+//    printf("(%d + %di) . (%d + %di) = (%f+ %fi)\n"
+//           "phase: %f, %f, %f, %f\n",
+//           ar, aj,
+//           br, bj,
+//           zr, zj,
+//           results[0], results[1], results[2], results[3]);//, //results[4],
+//               errs[0], errs[1], errs[2], errorInfo.name, errorInfo.namesWorst);
+//        errorInfo.totalErrors++;
+//    }
 
 //    assert(errs[0] < MAX_ERROR && errs[1] < MAX_ERROR && errs[2] < MAX_ERROR);
 }
@@ -281,16 +322,17 @@ int main(const int argc, const char **argv) {
     errorInfo.totalErrors = 0;
     errorInfo.namesWorst = -1.0;
     errorInfo.maxAvgErr = -1.0;
+    errorInfo.name = "unset";
     uint32_t i,j,k,m;
     double f,n,p,q;
-    for (i = 1, f = -10.0; i < MAX_ITERATIONS; ++i,             f += 0.0001) {
-        for (j = 1, n = -10.0; j < MAX_ITERATIONS; ++j,         n += 0.0001) {
-            for (k = 1, p = -10.0; k < MAX_ITERATIONS; ++k,     p += 0.0001) {
+    for (i = 1, f = -10.0; i < MAX_ITERATIONS; ++i,             f += 0.01) {
+        for (j = 1, n = -10.0; j < MAX_ITERATIONS; ++j,         n += 0.01) {
+            for (k = 1, p = -10.0; k < MAX_ITERATIONS; ++k,     p += 0.01) {
                 if (0.0 == f && 0.0 == p) continue;
-                for (m = 1, q = -10.0; m < MAX_ITERATIONS; ++m, q += 0.0001) {
+                for (m = 1, q = -10.0; m < MAX_ITERATIONS; ++m, q += 0.01) {
                     if (0.0 == n && f == -p) continue;
-                    //mult(i,j,k,m);
-                    mult(f,n,p,q);
+                    mult(i,j,k,m);
+                    //mult(f,n,p,q);
                 }
             }
         }
