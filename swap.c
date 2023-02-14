@@ -49,7 +49,11 @@ static void swap1(void *x, void *y) {
 
 extern void swap2(void *x, void *y);
 __asm__(
+#ifdef __APPLE_CC__
+"_swap2: "
+#else
 "swap2: "
+#endif
     "movq (%rsi), %rax\n\t"
     "xorq %rax, (%rdi)\n\t"
     "xorq (%rdi), %rax\n\t"
