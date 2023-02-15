@@ -227,7 +227,7 @@ void testIteration(struct argzArgs *args, void *results, int runIndex) {
     double result = ((double *) results)[runIndex];
     long double delta = fabsl(fabsl(result) - fabsl(phase));
     int isWrong = delta >= 1e-15L;
-    if (runIndex == 0) assert(!isWrong);
+    if (runIndex == 0 || runIndex == 1) assert(!isWrong);
 #ifdef DEBUG
     if (isWrong) {
         printf("%-25s a := (%d + %di), b := (%d +%di), phase := %f\n",

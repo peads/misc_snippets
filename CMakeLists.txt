@@ -16,6 +16,7 @@ add_subdirectory(swap)
 add_subdirectory(argz)
 
 if(UNIX AND NOT APPLE)
+    target_link_libraries(argz PUBLIC m)
     target_link_libraries(complex PUBLIC m)
     target_link_libraries(sqrt PUBLIC m)
 endif()
