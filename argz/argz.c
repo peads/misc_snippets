@@ -141,12 +141,17 @@ static double esbensen(int ar, int aj, int br, int bj)
 */
 {
 
-    int cj, dr, dj;
-    int scaled_pi = 2608; /* 1<<14 / (2*pi) */
-    dr = (br - ar) * 2;
-    dj = (bj - aj) * 2;
-    cj = bj * dr - br * dj; /* imag(ds*conj(s)) */
-    return (scaled_pi * cj / (ar * ar + aj * aj + 1));
+    double cj, dr, dj;
+    double xr = (double) ar;
+    double xj = (double) aj;
+    double yr = (double) br;
+    double yj = (double) bj;
+
+//    int scaled_pi = 2608; /* 1<<14 / (2*pi) */
+    dr = (yr - xr) * 2.0;
+    dj = (yj - xj) * 2.0;
+    cj = yj * dr - yr * dj; /* imag(ds*conj(s)) */
+    return ( 3.0*M_PI_4 - cj / (xr * xr + xj * xj) - 1.0);
 }
 
 static double calcVectPd(int ar, int aj, int br, int bj) {
@@ -220,14 +225,16 @@ void testIteration(struct argzArgs *args, void *results, int runIndex) {
     timeFun((timedFun) runTest, args, results, runIndex);
 
     double result = ((double *) results)[runIndex];
-
     long double delta = fabsl(fabsl(result) - fabsl(phase));
     int isWrong = delta >= 1e-15L;
+    if (runIndex == 0) assert(!isWrong);
+#ifdef DEBUG
     if (isWrong) {
         printf("%-25s a := (%d + %di), b := (%d +%di), phase := %f\n",
                runNames[runIndex], args->ar, args->aj, args->br, args->bj, result);
         printf("Expected phase: %f\n", phase);
     }
+#endif
 }
 
 int main(void) {
