@@ -27,6 +27,7 @@
 #include <float.h>
 #include <math.h>
 #include <unistd.h>
+#include <assert.h>
 
 #define DOUBLE_SIGN_MASK 0x7FFFFFFFFFFFFFFF
 
@@ -50,5 +51,9 @@ void timeFun(timedFun fun, void *s, void **result, int i);
 void printTimedRuns(char **runNames, uint32_t length);
 
 int signum(double y);
+
+uint64_t findMsb(uint64_t n);
+
+int bitScanReverse(uint64_t bb);
 
 #endif //TIMED_FUNCTIONS_H

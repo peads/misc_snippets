@@ -104,3 +104,29 @@ int signum(double y) {
 
     return s.abs ? s.signBit ? -1 : 1 : 0;
 }
+
+int bitScanReverse(uint64_t bb) {
+    union {
+        double d;
+        struct {
+            unsigned int mantissal : 32;
+            unsigned int mantissah : 20;
+            unsigned int exponent : 11;
+            unsigned int sign : 1;
+        };
+    } ud;
+    ud.d = (double)(bb & ~(bb >> 32));  // avoid rounding error
+    return ud.exponent - 1023;
+}
+
+uint64_t inline findMsb(uint64_t n)
+{
+    if (n == 0)
+        return 0;
+
+    int msb;
+
+    for (msb = 0, n >>= 1; n != 0; n >>= 1, ++msb);
+
+    return (1 << msb);
+}

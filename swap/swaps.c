@@ -16,12 +16,11 @@
  */
 
 #define TIMING_RUNS 3
-#define MIN -1000.0
-#define MAX 1000.0
+#define MIN -1000000.0
+#define MAX 1000000.0
 #define STEP 0.1
 #define MAX_ERROR 1e-1
 
-#include <assert.h>
 #include "timed_functions.h"
 
 typedef void (*runnableTest)(void *x, void *y);
@@ -49,7 +48,8 @@ __asm__ (
     "movq %rax, (%rsi)\n\t"
     "ret"
 );
-static void swap1(void *x, void *y) {
+static inline void swap1(void *x, void *y) {
+
     uintptr_t **i = (uintptr_t**)&x;
     uintptr_t **j = (uintptr_t**)&y;
 
@@ -58,7 +58,9 @@ static void swap1(void *x, void *y) {
     **i ^= **j;
 }
 
-static void swap(void *x, void *y) {
+static inline void swap(__attribute__((unused)) void *x,
+                        __attribute__((unused)) void *y) {
+
     __asm__ __volatile__ (
         "movq (%%rsi), %%rax\n\t"
         "xorq %%rax, (%%rdi)\n\t"
