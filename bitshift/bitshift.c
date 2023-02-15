@@ -81,7 +81,7 @@ int main(void) {
 
     uint64_t i;
 
-    for (i = 0L; i < 1000L; ++i) {
+    for (i = 0L; i < 100000000L; ++i) {
         int correct = bitScanReverse(i);
         int result = bsr(i);
         struct timespec tstart, tend;

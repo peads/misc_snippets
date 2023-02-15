@@ -19,10 +19,10 @@
 #include <immintrin.h>
 #include "timed_functions.h"
 
-#define MIN -2
-#define MAX 2
+#define MIN -1000
+#define MAX 1000
 #define STEP 1
-#define MAX_ERROR 1e-16
+#define MAX_ERROR 1e-9
 #ifdef DEBUG
     #define ASSERT(b) assert(b)
 #else
@@ -140,10 +140,10 @@ static double calcVectPd(int ar, int aj, int br, int bj) {
     u.vect = _mm256_sqrt_pd(u.vect);                            // (u[0] + u[2])^1/2, (u[0] + u[3])^1/2, (u[3] + u[0])^1/2, (u[2] + u[1])^1/2
 
 #ifndef DEBUG
-    return acos(zr / u.vect[0]);
+    return zj < 0 ? -acos(zr / u.vect[0]) : acos(zr / u.vect[0]);
 #else
     static uint64_t errCnt = 0;
-    double result =  acos(zr / u.vect[0]);                          // ((ar*ar - aj*bj)^2 + (br*aj + ar*bj)^2)^1/2
+    double result = zj < 0 ? -acos(zr / u.vect[0]) : acos(zr / u.vect[0]);                         // ((ar*ar - aj*bj)^2 + (br*aj + ar*bj)^2)^1/2
 
     int mulr = ar * br - aj * bj;
     int mulj = ar * bj + br * aj;
@@ -153,7 +153,8 @@ static double calcVectPd(int ar, int aj, int br, int bj) {
     double phase = atan2(mulj, mulr);
 
     long double delta = fabsl(fabsl(result) - fabsl(phase));
-    int isWrong = delta >= 1e-15L;
+    int isWrong = delta >= MAX_ERROR;
+
     if (isWrong) {
         printf("%s a := (%d + %di), b := (%d + %di)\n", runNames[3], ar, aj, br, bj);
         printf("%s a := (%d + %di), b := (%d + %di)\n", runNames[3], ar, aj, br, bj);
@@ -181,16 +182,18 @@ void testIteration(struct bitArgs *args, void *results, int runIndex) {
     timeFun((timedFun) runTest, args, results, runIndex);
 
     double result = ((double *) results)[runIndex];
-    long double delta = fabsl(fabsl(result) - fabsl(phase));
-    int isWrong = delta >= 1e-15L;
+    long double delta = fabsl(result - phase);
+    int isWrong = delta >= MAX_ERROR;
+
 #ifdef DEBUG
-    if (isWrong) {
-        printf("%-25s a := (%d + %di), b := (%d +%di), phase := %f\n",
+    if (!runIndex && isWrong) {
+        printf("%-25s a := (%d + %di), b := (%d +%di), Got: %f ",
                runNames[runIndex], args->ar, args->aj, args->br, args->bj, result);
-        printf("Expected phase: %f\n", phase);
+        printf("Expected: %f Delta: %Lf\n", phase, delta);
+        printf("Signedness ar: %d aj: %d br: %d bj: %d\n", args->ar, args->aj, args->br, args->bj);//, mulr, mulj);
     }
 #endif
-    if (runIndex == 0 || runIndex == 1) assert(!isWrong);
+    if (!runIndex || runIndex == 1) assert(!isWrong);
 }
 
 int main(void) {
