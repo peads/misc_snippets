@@ -42,7 +42,7 @@ typedef union {
 
 static long double rollingTimeAvgs[TIMING_RUNS];
 
-static void findDeltaTime(int idx, const struct timespec *tstart, const struct timespec *tend);
+void findDeltaTime(int idx, const struct timespec *tstart, const struct timespec *tend);
 //uint8_t timeFunD(timedFunD fun, double s, int i);
 //uint8_t timeFunF(timedFunF fun, float s, int i);
 

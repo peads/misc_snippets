@@ -22,7 +22,7 @@
 #define MIN -2
 #define MAX 2
 #define STEP 1
-#define MAX_ERROR 1e-1
+#define MAX_ERROR 1e-16
 #ifdef DEBUG
     #define ASSERT(b) assert(b)
 #else
@@ -32,59 +32,15 @@
 char *runNames[TIMING_RUNS] = {"vect1 :: ", "polar_discriminant :: ", "polar_disc_fast :: ",
                                "esbensen :: " };
 
-//typedef int (*argzFun)(int a, int b, int c, int d);
 typedef double (*argzFun)(int a, int b, int c, int d);
 
-struct argzArgs {
+struct bitArgs {
     int ar;
     int aj;
     int br;
     int bj;
     argzFun fun;
 };
-
-//extern int bsr(uint64_t i);
-//__asm__ (
-//#ifdef __APPLE_CC__
-//"_bsr: "
-//#else
-//"bsr: "
-//#endif
-//    "movq $-1023, %rdx\n\t" // store 0 to compare against ZF later
-//    "bsr %rdi, %rax\n\t"
-//    "cmovzq %rdx, %rax\n\t"
-//    "ret"
-//);
-//
-//extern uint64_t lzcnt(uint64_t i);
-//__asm__ (
-//#ifdef __APPLE_CC__
-//"_lzcnt: "
-//    #else
-//"lzcnt: "
-//    #endif
-//    "movq $0, %rdx\n\t" // store 0 to return if CF set later
-//    "lzcnt %rdi, %rax\n\t"
-//    "cmovcq %rdx, %rax\n\t"
-//    "ret"
-//);
-
-//extern int bsrLzcnt(uint64_t i);
-//__asm__ (
-//#ifdef __APPLE_CC__
-//"_bsrLzcnt: "
-//    #else
-//"bsrLzcnt: "
-//    #endif
-//    "lzcnt %rdi, %rdx\n\t"
-//    "jc zero\n\t" // jump to return -1023 if input was 0
-//    "movq $63, %rax\n\t"
-//    "subq %rdx, %rax\n\t"
-//    "ret\n\t"
-//"zero:\n\t"
-//    "movq $-1023, %rax\n\t"
-//    "ret"
-//);
 
 static inline void multiply(int ar, int aj, int br, int bj, int *cr, int *cj) {
 
@@ -211,12 +167,12 @@ static double calcVectPd(int ar, int aj, int br, int bj) {
 
 void runTest(void *arg, double *result) {
 
-    struct argzArgs *bargs = arg;
+    struct bitArgs *bargs = arg;
 
     *result = bargs->fun(bargs->ar, bargs->aj, bargs->br, bargs->bj);
 }
 
-void testIteration(struct argzArgs *args, void *results, int runIndex) {
+void testIteration(struct bitArgs *args, void *results, int runIndex) {
 
     double mulr = args->ar * args->br - args->aj * args->bj;
     double mulj = args->ar * args->bj + args->br * args->aj;
@@ -227,7 +183,6 @@ void testIteration(struct argzArgs *args, void *results, int runIndex) {
     double result = ((double *) results)[runIndex];
     long double delta = fabsl(fabsl(result) - fabsl(phase));
     int isWrong = delta >= 1e-15L;
-    if (runIndex == 0 || runIndex == 1) assert(!isWrong);
 #ifdef DEBUG
     if (isWrong) {
         printf("%-25s a := (%d + %di), b := (%d +%di), phase := %f\n",
@@ -235,12 +190,13 @@ void testIteration(struct argzArgs *args, void *results, int runIndex) {
         printf("Expected phase: %f\n", phase);
     }
 #endif
+    if (runIndex == 0 || runIndex == 1) assert(!isWrong);
 }
 
 int main(void) {
 
     int m, k, j, i;
-    struct argzArgs args;
+    struct bitArgs args;
     double results[TIMING_RUNS];
 
     args.bj = args.br = args.ar = args.aj = MIN;

@@ -28,7 +28,7 @@ static inline void timespec_diff(const struct timespec *a, const struct timespec
     }
 }
 
-static void findDeltaTime(int idx, const struct timespec *tstart, const struct timespec *tend) {
+void findDeltaTime(int idx, const struct timespec *tstart, const struct timespec *tend) {
 
     static uint64_t counts[TIMING_RUNS];
     struct timespec tau;
