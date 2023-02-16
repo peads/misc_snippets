@@ -17,10 +17,9 @@
 
 #define DEBUG
 #define TIMING_RUNS 3
-#define MIN -1000.0
-#define MAX 1000.0
-#define STEP 0.1
-#define MAX_ERROR 1e-1
+#define MIN -30.0
+#define MAX 30.0
+#define STEP 0.00001
 
 #include "timed_functions.h"
 
@@ -43,50 +42,36 @@ __asm__ (
     "ret"
 );
 
-static void swap1(void *x, void *y) {
+static inline void swap1(void *x, void *y) {
 
-    **((uintptr_t**)&x) = **((uintptr_t**)&y);
-    **((uintptr_t**)&y) = **((uintptr_t**)&x);
-    **((uintptr_t**)&x) = **((uintptr_t**)&y);
+    **((uintptr_t **) &x) ^= **((uintptr_t **) &y);
+    **((uintptr_t **) &y) ^= **((uintptr_t **) &x);
+    **((uintptr_t **) &x) ^= **((uintptr_t **) &y);
 }
 
-static void swap(void *x, void *y) {
+static inline void swap(void *x, void *y) {
 
-    uintptr_t **temp = NULL;;
+    uintptr_t temp = *(uintptr_t *) x;
+    **((uintptr_t **) &x) = **((uintptr_t **) &y);
+    *(uintptr_t *) y = *((uintptr_t *) &temp);
 
-    **temp = **((uintptr_t**)&x);
-    **((uintptr_t**)&x) = **((uintptr_t**)&y);
-    **((uintptr_t**)&y) = **temp;
 }
-
-//static inline void swap(__attribute__((unused)) void *x,
-//                        __attribute__((unused)) void *y) {
-//
-//    __asm__ __volatile__ (
-//        "movq (%%rsi), %%rax\n\t"
-//        "xorq %%rax, (%%rdi)\n\t"
-//        "xorq (%%rdi), %%rax\n\t"
-//        "xorq %%rax, (%%rdi)\n\t"
-//        "movq %%rax, (%%rsi)\n\t"
-//        ://:::"rax"
-//    );
-//}
 
 int main(void) {
+
     struct timespec tstart, tend;
 
     static const uint64_t n = SQUARE_SIDE * SQUARE_SIDE;
 
-    int i;
     double x, y, xx, yy;
 
-    for (i = 0, x = y = MIN; i < n && x < MAX; ++i, y += STEP) {
+    for (x = y = MIN; x < MAX; y += STEP) {
 
-        if ((*(uint64_t *)&x & *(uint64_t *)&y)) { // x and y not 0
-            
+        if ((*(uint64_t *) &x & *(uint64_t *) &y)) { // x and y not 0
+
             xx = x;
             yy = y;
-            printf("%sx: %f, y: %f\n", runNames[0], x, y);
+//            printf("%sx: %f, y: %f\n", runNames[0], x, y);
             clock_gettime(CLOCK_MONOTONIC, &tstart);
 
             swap(&x, &y);
@@ -94,12 +79,10 @@ int main(void) {
             clock_gettime(CLOCK_MONOTONIC, &tend);
             findDeltaTime(0, &tstart, &tend);
 
-            printf("%sx: %f, y: %f\n", runNames[0], x, y);
+//            printf("%sx: %f, y: %f\n", runNames[0], x, y);
             assert(x == yy && y == xx);
-            
-            x = yy;
-            y = xx;
-            printf("%sx: %f, y: %f\n", runNames[1], x, y);
+
+//            printf("%sx: %f, y: %f\n", runNames[1], x, y);
             clock_gettime(CLOCK_MONOTONIC, &tstart);
 
             swap1(&x, &y);
@@ -107,24 +90,20 @@ int main(void) {
             clock_gettime(CLOCK_MONOTONIC, &tend);
 
             findDeltaTime(1, &tstart, &tend);
-            
-            printf("%sx: %f, y: %f\n", runNames[1], x, y);
-            assert(x == yy && y == xx);
-            
-            x = yy;
-            y = xx;
-            printf("%sx: %f, y: %f\n", runNames[2], x, y);
+
+//            printf("%sx: %f, y: %f\n", runNames[1], x, y);
+            assert(x == xx && y == yy);
+
+//            printf("%sx: %f, y: %f\n", runNames[2], x, y);
             clock_gettime(CLOCK_MONOTONIC, &tstart);
 
             swap2(&x, &y);
 
             clock_gettime(CLOCK_MONOTONIC, &tend);
             findDeltaTime(2, &tstart, &tend);
-            printf("%sx: %f, y: %f\n", runNames[2], x, y);
+//            printf("%sx: %f, y: %f\n", runNames[2], x, y);
             assert(x == yy && y == xx);
-        
-            x = yy;
-            y = xx;
+
         }
         if (y >= MAX) {
             x += STEP;

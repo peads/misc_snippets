@@ -4,9 +4,8 @@ project(${PROJECT_NAME} LANGUAGES C)
 set(CMAKE_C_STANDARD 99)
 
 add_compile_options(-O3)
+#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native -mtune=intel")
 #add_compile_options(-g)
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=haswell -mno-avx256-split-unaligned-load -mtune=intel")
 include_directories("${CMAKE_HOME_DIRECTORY}/timed_functions/include")
 
 add_subdirectory(timed_functions)
