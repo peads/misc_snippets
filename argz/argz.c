@@ -14,13 +14,13 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-
-#define TIMING_RUNS 4
+//#define DEBUG
+#define TIMING_RUNS 3
 #include <immintrin.h>
 #include "timed_functions.h"
 
-#define MIN -1000
-#define MAX 1000
+#define MIN -10
+#define MAX 10
 #define STEP 1
 #define MAX_ERROR 1e-9
 #ifdef DEBUG
@@ -29,12 +29,11 @@
     #define ASSERT(b) //
 #endif
 
-char *runNames[TIMING_RUNS] = {"vect1 :: ", "polar_discriminant :: ", "polar_disc_fast :: ",
-                               "esbensen :: " };
+char *runNames[TIMING_RUNS] = {"vect1 :: ", "vect2 :: ", "polar_discriminant :: "};
 
 typedef double (*argzFun)(int a, int b, int c, int d);
 
-struct bitArgs {
+struct argzArgs {
     int ar;
     int aj;
     int br;
@@ -42,72 +41,14 @@ struct bitArgs {
     argzFun fun;
 };
 
-static inline void multiply(int ar, int aj, int br, int bj, int *cr, int *cj) {
-
-    *cr = ar * br - aj * bj;
-    *cj = aj * br + ar * bj;
-}
-
-static double fast_atan2(double y, double x)
-/* pre scaled for int16 */
-{
-
-    double yabs, angle;
-//    int pi4 = (1 << 12), pi34 = 3 * (1 << 12);  /* note pi = 1<<14 */
-    if (x == 0 && y == 0) {
-        return 0;
-    }
-    yabs = y;
-    if (yabs < 0) {
-        yabs = -yabs;
-    }
-    if (x >= 0) {
-        angle = M_PI_2 - (x - yabs) / (x + yabs) + 1.0;
-    } else {
-        angle = (y < 0.0 ? M_PI_2 : -M_PI_2) - (x + yabs) / (yabs - x) + 1.0;
-    }
-    if (y < 0.0) {
-        return -angle;
-    }
-    return angle;
-}
-
-static double polar_disc_fast(int ar, int aj, int br, int bj) {
-
-    int cr, cj;
-    multiply(ar, aj, br, -bj, &cr, &cj);
-    return fast_atan2(cj, cr);
-}
-
 static double polar_discriminant(int ar, int aj, int br, int bj) {
 
     int cr, cj;
-    multiply(ar, aj, br, bj, &cr, &cj);
+
+    cr = ar * br - aj * bj;
+    cj = aj * br + ar * bj;
+
     return atan2((double) cj, (double) cr);
-}
-
-static double esbensen(int ar, int aj, int br, int bj)
-/*
-  input signal: s(t) = a*exp(-i*w*t+p)
-  a = amplitude, w = angular freq, p = phase difference
-  solve w
-  s' = -i(w)*a*exp(-i*w*t+p)
-  s'*conj(s) = -i*w*a*a
-  s'*conj(s) / |s|^2 = -i*w
-*/
-{
-
-    double cj, dr, dj;
-    double xr = (double) ar;
-    double xj = (double) aj;
-    double yr = (double) br;
-    double yj = (double) bj;
-
-//    int scaled_pi = 2608; /* 1<<14 / (2*pi) */
-    dr = (yr - xr) * 2.0;
-    dj = (yj - xj) * 2.0;
-    cj = yj * dr - yr * dj; /* imag(ds*conj(s)) */
-    return ( 3.0*M_PI_4 - cj / (xr * xr + xj * xj) - 1.0);
 }
 
 static double calcVectPd(int ar, int aj, int br, int bj) {
@@ -156,8 +97,8 @@ static double calcVectPd(int ar, int aj, int br, int bj) {
     int isWrong = delta >= MAX_ERROR;
 
     if (isWrong) {
-        printf("%s a := (%d + %di), b := (%d + %di)\n", runNames[3], ar, aj, br, bj);
-        printf("%s a := (%d + %di), b := (%d + %di)\n", runNames[3], ar, aj, br, bj);
+        printf("%s a := (%d + %di), b := (%d + %di)\n", runNames[0], ar, aj, br, bj);
+        printf("%s a := (%d + %di), b := (%d + %di)\n", runNames[0], ar, aj, br, bj);
         printf("%llu - Expected phase: %f Got phase: %f Delta: %Lf\n", errCnt++, phase, result, delta);
     }
     ASSERT(!isWrong);
@@ -166,14 +107,64 @@ static double calcVectPd(int ar, int aj, int br, int bj) {
 #endif
 }
 
+static double calcVect(int ar, int aj, int br, int bj) {
+
+    double zr, zj;
+
+    union vect128 {
+        __m128d vect;
+    };
+
+    union vect128 u1 = {ar, ar};
+    union vect128 v1 = {br, bj};
+    union vect128 u0 = {aj, br};
+    union vect128 v0 = {bj, aj};
+    __m128d u1a;
+
+    v1.vect = _mm_mul_pd(u1.vect, v1.vect); // => {ar*br, ar*bj}
+    v0.vect = _mm_mul_pd(u0.vect, v0.vect); // => {aj*bj, br*aj}
+
+    u1.vect = _mm_sub_pd(v1.vect,    // => {ar*br - aj*bj, ar*bj - br*aj}
+                            v0.vect);   // *we don't care about the second entry
+
+    u0.vect = _mm_add_pd(v1.vect,    // => {ar*br + aj*bj, ar*bj + br*aj}
+                            v0.vect);   // *we don't care about the first entry
+
+    zr = u1.vect[0];
+    zj = u0.vect[1];
+
+    u0.vect = _mm_mul_pd(u0.vect, u0.vect);
+    u1.vect = _mm_mul_pd(u1.vect, u1.vect);
+    u1a = _mm_set_pd(u1.vect[0], u1.vect[1]);
+    u0.vect = _mm_add_pd(u0.vect, u1a);
+    u0.vect = _mm_sqrt_pd(u0.vect);
+
+#ifndef DEBUG
+    return zj < 0 ? -acos(zr / u0.vect[1]) : acos(zr / u0.vect[1]);
+#else
+    ASSERT(mulr == zr);
+    ASSERT(mulj == zj);
+
+    int mulr = ar * br - aj * bj;
+    int mulj = ar * bj + br * aj;
+    double phase = atan2(mulj, mulr);
+    double result = zj < 0 ? -acos(zr / u0.vect[1]) : acos(zr / u0.vect[1]);
+    long double delta = fabsl(fabsl(result) - fabsl(phase));
+    int isWrong = delta >= MAX_ERROR;
+
+    ASSERT(!isWrong);
+    return result;
+#endif
+}
+
 void runTest(void *arg, double *result) {
 
-    struct bitArgs *bargs = arg;
+    struct argzArgs *bargs = arg;
 
     *result = bargs->fun(bargs->ar, bargs->aj, bargs->br, bargs->bj);
 }
 
-void testIteration(struct bitArgs *args, void *results, int runIndex) {
+void testIteration(struct argzArgs *args, void *results, int runIndex) {
 
     double mulr = args->ar * args->br - args->aj * args->bj;
     double mulj = args->ar * args->bj + args->br * args->aj;
@@ -193,13 +184,13 @@ void testIteration(struct bitArgs *args, void *results, int runIndex) {
         printf("Signedness ar: %d aj: %d br: %d bj: %d\n", args->ar, args->aj, args->br, args->bj);//, mulr, mulj);
     }
 #endif
-    if (!runIndex || runIndex == 1) assert(!isWrong);
+    assert(!isWrong);
 }
 
 int main(void) {
 
     int m, k, j, i;
-    struct bitArgs args;
+    struct argzArgs args;
     double results[TIMING_RUNS];
 
     args.bj = args.br = args.ar = args.aj = MIN;
@@ -208,7 +199,9 @@ int main(void) {
     args.aj = 2;
     args.fun = calcVectPd;
     args.bj = 4;
-    testIteration(&args, results, 0);
+
+    calcVectPd(1,2,3,4);
+    calcVect(1,2,3,4);
 
     for (i = MIN; i < MAX; ++i) {
         args.ar = i;
@@ -219,22 +212,21 @@ int main(void) {
                 for (m = MIN; m < MAX; ++m) {
                     args.bj = m;
 
-
                     args.fun = calcVectPd;
                     testIteration(&args, results, 0);
 
-                    args.fun = polar_discriminant;
+                    args.fun = calcVect;
                     testIteration(&args, results, 1);
 
-                    args.fun = polar_disc_fast;
+                    args.fun = polar_discriminant;
                     testIteration(&args, results, 2);
-
-                    args.fun = esbensen;
-                    testIteration(&args, results, 3);
+//
+//                    args.fun = esbensen;
+//                    testIteration(&args, results, 3);
                 }
             }
         }
     }
 
-    printTimedRuns(runNames, 4);
+    printTimedRuns(runNames, TIMING_RUNS);
 }

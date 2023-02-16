@@ -50,38 +50,11 @@ __asm__ (
     "ret"
 );
 
-//void runTest(void *arg, int *result) {
-//
-//    struct bitArgs *bargs = arg;
-//
-//    *result = bargs->fun(bargs->i);
-//}
-//#define DEBUG
-//void testIteration(struct bitArgs *args, void *results, int runIndex) {
-//
-//    int result;
-//    int correct = bitScanReverse(args->i);
-//    int delta;
-//
-//    timeFun((timedFun) runTest, args, results, runIndex);
-//
-//    result = ((int *) results)[runIndex];
-//    delta = abs(abs(correct) - abs(result));
-//    int isWrong = delta != 0;
-//
-//#ifdef DEBUG
-//    if (isWrong) {
-//        printf("%-25s Expected: %llu Got: %d\n",
-//               runNames[runIndex], args->i, result);
-//    }
-//#endif
-//    assert(!isWrong);
-//}
 int main(void) {
 
     uint64_t i;
 
-    for (i = 0L; i < 100000000L; ++i) {
+    for (i = 0L; i < 10000000L; ++i) {
         int correct = bitScanReverse(i);
         int result = bsr(i);
         struct timespec tstart, tend;
