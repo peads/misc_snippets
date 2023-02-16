@@ -69,7 +69,6 @@ static void swap2b(void *x, void *y) {
     uintptr_t temp = *(uintptr_t *) x;
     **((uintptr_t **) &x) = **((uintptr_t **) &y);
     *(uintptr_t *) y = *((uintptr_t *) &temp);
-
 }
 
 int main(void) {
