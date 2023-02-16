@@ -15,20 +15,14 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define DEBUG
 #define TIMING_RUNS 3
-#define MIN -1000000.0
-#define MAX 1000000.0
+#define MIN -1000.0
+#define MAX 1000.0
 #define STEP 0.1
 #define MAX_ERROR 1e-1
 
 #include "timed_functions.h"
-
-typedef void (*runnableTest)(void *x, void *y);
-struct swapArgs {
-    double x;
-    double y;
-    runnableTest fun;
-};
 
 static const uint32_t SQUARE_SIDE = (MAX - MIN) / STEP + 1;
 
@@ -48,69 +42,93 @@ __asm__ (
     "movq %rax, (%rsi)\n\t"
     "ret"
 );
-static inline void swap1(void *x, void *y) {
 
-    uintptr_t **i = (uintptr_t**)&x;
-    uintptr_t **j = (uintptr_t**)&y;
+static void swap1(void *x, void *y) {
 
-    **i ^= **j;
-    **j ^= **i;
-    **i ^= **j;
+    **((uintptr_t**)&x) = **((uintptr_t**)&y);
+    **((uintptr_t**)&y) = **((uintptr_t**)&x);
+    **((uintptr_t**)&x) = **((uintptr_t**)&y);
 }
 
-static inline void swap(__attribute__((unused)) void *x,
-                        __attribute__((unused)) void *y) {
+static void swap(void *x, void *y) {
 
-    __asm__ __volatile__ (
-        "movq (%%rsi), %%rax\n\t"
-        "xorq %%rax, (%%rdi)\n\t"
-        "xorq (%%rdi), %%rax\n\t"
-        "xorq %%rax, (%%rdi)\n\t"
-        "movq %%rax, (%%rsi)\n\t"
-        ://:::"rax"
-    );
+    uintptr_t **temp = NULL;;
+
+    **temp = **((uintptr_t**)&x);
+    **((uintptr_t**)&x) = **((uintptr_t**)&y);
+    **((uintptr_t**)&y) = **temp;
 }
 
-void runTest(void* args, ...) {
-
-    struct swapArgs *sargs = args;
-    sargs->fun(&sargs->x, &sargs->y);
-}
-
-void testIteration(struct swapArgs *args, int runIndex) {
-
-    double xx = args->x;
-    double yy = args->y;
-
-//    runTest(args);
-    timeFun((timedFun) runTest, args, NULL, runIndex);
-    assert(xx == args->y && yy == args->x);
-}
+//static inline void swap(__attribute__((unused)) void *x,
+//                        __attribute__((unused)) void *y) {
+//
+//    __asm__ __volatile__ (
+//        "movq (%%rsi), %%rax\n\t"
+//        "xorq %%rax, (%%rdi)\n\t"
+//        "xorq (%%rdi), %%rax\n\t"
+//        "xorq %%rax, (%%rdi)\n\t"
+//        "movq %%rax, (%%rsi)\n\t"
+//        ://:::"rax"
+//    );
+//}
 
 int main(void) {
+    struct timespec tstart, tend;
 
     static const uint64_t n = SQUARE_SIDE * SQUARE_SIDE;
 
     int i;
-    struct swapArgs args;
+    double x, y, xx, yy;
 
-    for (i = 0, args.x = args.y = MIN; i < n && args.x < MAX; ++i, args.y += STEP) {
+    for (i = 0, x = y = MIN; i < n && x < MAX; ++i, y += STEP) {
 
-        if ((*(uint64_t *)&args.x & *(uint64_t *)&args.y)) { // x and y not 0
+        if ((*(uint64_t *)&x & *(uint64_t *)&y)) { // x and y not 0
+            
+            xx = x;
+            yy = y;
+            printf("%sx: %f, y: %f\n", runNames[0], x, y);
+            clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-            args.fun = swap;
-            testIteration(&args, 0);
+            swap(&x, &y);
 
-            args.fun = swap1;
-            testIteration(&args, 1);
+            clock_gettime(CLOCK_MONOTONIC, &tend);
+            findDeltaTime(0, &tstart, &tend);
 
-            args.fun = swap2;
-            testIteration(&args, 2);
+            printf("%sx: %f, y: %f\n", runNames[0], x, y);
+            assert(x == yy && y == xx);
+            
+            x = yy;
+            y = xx;
+            printf("%sx: %f, y: %f\n", runNames[1], x, y);
+            clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+            swap1(&x, &y);
+
+            clock_gettime(CLOCK_MONOTONIC, &tend);
+
+            findDeltaTime(1, &tstart, &tend);
+            
+            printf("%sx: %f, y: %f\n", runNames[1], x, y);
+            assert(x == yy && y == xx);
+            
+            x = yy;
+            y = xx;
+            printf("%sx: %f, y: %f\n", runNames[2], x, y);
+            clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+            swap2(&x, &y);
+
+            clock_gettime(CLOCK_MONOTONIC, &tend);
+            findDeltaTime(2, &tstart, &tend);
+            printf("%sx: %f, y: %f\n", runNames[2], x, y);
+            assert(x == yy && y == xx);
+        
+            x = yy;
+            y = xx;
         }
-
-        if (args.y >= MAX) {
-            args.x += STEP;
-            args.y = MIN;
+        if (y >= MAX) {
+            x += STEP;
+            y = MIN;
         }
     }
 
