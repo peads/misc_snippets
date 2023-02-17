@@ -1,9 +1,21 @@
-//
-// Created by Patrick Eads on 2/16/23.
-//
+/*
+ * This file is part of the misc_snippets distribution (https://github.com/peads/misc_snippets).
+ * Copyright (c) 2023 Patrick Eads.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
 #include <stdio.h>
 #include <assert.h>
-#include <math.h>
 #include <immintrin.h>
 
 #define MUL_PLUS_J_INT(X, J)    \
@@ -48,16 +60,11 @@ void fun(short *a, int len) {
     int i, j, k = 0;
     int max = len >> 2;
     __m128i arr[max >> 1];
-    __m128i v;
-    __m128i u;
 
     for (i = 0; i < max; i += 2) {
         j = (i << 2);
         firstHalf = a + j;
         secondHalf = a + j + 4;
-
-//        arr[k++] = _mm_unpacklo_epi64(_mm_mul_epi32(_mm_loadl_epi64((const __m128i*) firstHalf), X.vect),
-//                                      _mm_mul_epi32(_mm_loadl_epi64((const __m128i*) secondHalf), Y.vect));
 
         arr[k++] = _mm_unpacklo_epi64(
                 _mm_loadl_epi64((const __m128i*) firstHalf),
