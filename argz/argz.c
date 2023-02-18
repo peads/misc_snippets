@@ -58,11 +58,11 @@ static double calcVectPd(int ar, int aj, int br, int bj) {
     };
 
     union vect u = {ar, aj, ar, br};
-    union vect v = {br, bj, bj, aj};                               // => ar*br, aj*bj, ar*bj, br*aj
+    union vect v = {br, bj, bj, aj};
 //    __m256d temp;
     double zr, zj;
 
-    u.vect = _mm256_mul_pd(u.vect, v.vect);
+    u.vect = _mm256_mul_pd(u.vect, v.vect);                  // ar*br, aj*bj, ar*bj, br*aj
 //    temp = _mm256_permute_pd(u.vect, 0b0101);                    // aj*bj, ar*br, br*aj, ar*bj
     u.vect = _mm256_addsub_pd(u.vect,
                             _mm256_permute_pd(u.vect, 0b0101)); // ar*ar - aj*bj, aj*bj + ar*br, ar*bj - br*aj, br*aj + ar*bj
@@ -186,6 +186,16 @@ void testIteration(struct argzArgs *args, void *results, int runIndex) {
 #endif
     assert(!isWrong);
 }
+
+extern asmArgz(int xr, int xj, int yr, int yj);
+__asm__(
+#ifdef __APPLE_CC__
+"_asmArgz: "
+#else
+"asmArgz: "
+#endif
+    "movsldup xmm0, src1\n\t"
+);
 
 int main(void) {
 

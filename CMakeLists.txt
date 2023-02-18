@@ -4,7 +4,7 @@ project(${PROJECT_NAME} LANGUAGES C)
 set(CMAKE_C_STANDARD 99)
 
 #add_compile_options(-O3)
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native -mtune=intel")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native -mtune=intel -mavx")
 add_compile_options(-g)
 include_directories("${CMAKE_HOME_DIRECTORY}/timed_functions/include")
 
