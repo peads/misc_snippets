@@ -5,7 +5,7 @@ set(CMAKE_C_STANDARD 99)
 
 #add_compile_options(-O3)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -march=native -mtune=intel -mavx")
-add_compile_options(-g)
+add_compile_options(-g -Wno-format-invalid-specifier)
 include_directories("${CMAKE_HOME_DIRECTORY}/timed_functions/include")
 
 add_subdirectory(timed_functions)
