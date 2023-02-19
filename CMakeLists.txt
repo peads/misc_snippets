@@ -21,7 +21,7 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(argz PUBLIC m)
     target_link_libraries(complex PUBLIC m)
     target_link_libraries(sqrt PUBLIC m)
-    target_link_libraries(complex PUBLIC m)
+    target_link_libraries(rotate PUBLIC m)
 endif()
 
 target_link_libraries(complex PUBLIC timed_functions)
