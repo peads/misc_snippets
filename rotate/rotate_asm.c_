@@ -1,0 +1,124 @@
+/*
+ * This file is part of the misc_snippets distribution (https://github.com/peads/misc_snippets).
+ * Copyright (c) 2023 Patrick Eads.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+#include <stdio.h>
+#include <assert.h>
+#include <immintrin.h>
+#include <emmintrin.h>
+#include <math.h>
+#define TIMING_RUNS 2
+#include "timed_functions.h"
+#define MAX_ERROR 1e-6
+#define MIN -10
+#define MAX 10
+#define STEP 1
+//#define DEBUG
+#ifdef DEBUG
+#include <stdio.h>
+    #define PRINTF printf
+#else
+    #define PRINTF //
+#endif
+
+extern float asmArgz_ps(__m128 *z0, __m128 *z1);
+__asm__(
+#ifdef __APPLE_CC__
+"_asmArgz_ps: "
+#else
+"asmArgz_ps: "
+#endif
+    "vmovaps (%rsi), %xmm1\n\t"
+    "vmulps (%rdi), %xmm1, %xmm2\n\t"
+    "vpermilps $0xB1, %xmm2, %xmm1\n\t"
+    "vaddsubps %xmm2, %xmm1, %xmm1\n\t"
+    "vpermilps $0xF0, %xmm1, %xmm1\n\t"
+    "vmovaps %xmm1, (%rdi)\n\t"
+
+//    "movhlps %xmm2, %xmm1\n\t"
+//    // push
+//    "sub $16, %rsp\n\t"
+//    "vmovss %xmm2, (%rsp)\n\t"
+//    "flds (%rsp)\n\t"
+//    // push
+//    "sub $16, %rsp\n\t"
+//    "vmovss %xmm1, (%rsp)\n\t"
+//    "flds (%rsp)\n\t"
+//    //pop
+//    "add $16, %rsp\n\t"
+//    "fpatan\n\t"
+//    "fstps (%rsp)\n\t"
+//    "vmovq(%rsp), %xmm0\n\t"
+//    // pop
+//    "add $16, %rsp\n\t"
+    "ret"
+);
+
+extern void conjz(__m128 *z);
+__asm__ (
+#ifdef __APPLE_CC__
+"_conjz: "
+#else
+"conjz: "
+#endif
+    "movq $0x100003f20, %rcx\n\t"
+    "pushq %rcx\n\t"
+    "vbroadcastss (%rsp), %xmm2\n\t" // all ones
+    "subps (%rdi), %xmm2\n\t"
+    "vmovaps %xmm2, (%rdi)\n\t"
+    "pop %rcx\n\t"
+    "ret"
+);
+
+union vect {
+    float arr[4] __attribute__((aligned(16)));
+    __m128 vect;
+};
+
+int main(void) {
+    static char *runNames[TIMING_RUNS] = {"argz :: ", "conj :: "};
+    float ar, aj, br, bj, arg;
+    struct timespec tstart, tend;
+
+    for (ar = MIN; ar < MAX; ++ar)
+        for (aj = MIN; aj < MAX; ++aj)
+            for (br = MIN; br < MAX; ++br)
+                for (bj = MIN; bj < MAX; ++bj){
+                    union vect u1 = { aj,ar,aj,ar };
+                    union vect v1 = { bj,br,br,bj };
+
+                    clock_gettime(CLOCK_MONOTONIC, &tstart);
+                    asmArgz_ps(&u1.vect, &v1.vect);
+                    arg = atan2f(u1.vect[0], u1.vect[3]);
+
+                    clock_gettime(CLOCK_MONOTONIC, &tend);
+                    findDeltaTime(0, &tstart, &tend);
+
+                    PRINTF("(%.1f + %.1fi) . (%.1f + %.1fi)",  1., 2., 3., 4.);
+                    PRINTF(" = (%.1f + %.1fi)\nphase: %f\n", u1.vect[0], u1.vect[3], arg);
+
+                    clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+                    conjz(&u1.vect);
+
+                    clock_gettime(CLOCK_MONOTONIC, &tend);
+                    findDeltaTime(1, &tstart, &tend);
+
+                    PRINTF("conjugate: (%.1f + %.1fi)\n\n", u1.vect[0], u1.vect[3]);
+                }
+
+    printTimedRuns(runNames, TIMING_RUNS);
+    printf("Iterations: %d\n", (MAX - MIN) / STEP + 1);
+}

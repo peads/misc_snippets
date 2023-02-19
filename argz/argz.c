@@ -187,14 +187,15 @@ void testIteration(struct argzArgs *args, void *results, int runIndex) {
     assert(!isWrong);
 }
 
-extern asmArgz(int xr, int xj, int yr, int yj);
+extern void asmArgz(int xr, int xj, int yr, int yj);
 __asm__(
 #ifdef __APPLE_CC__
 "_asmArgz: "
 #else
 "asmArgz: "
 #endif
-    "movsldup xmm0, src1\n\t"
+//    "movsldup xmm0, src1\n\t"
+    "ret"
 );
 
 int main(void) {
