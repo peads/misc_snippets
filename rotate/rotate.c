@@ -44,8 +44,6 @@ __asm__(
     "flds (%rsp)\n\t"
     //pop
     "add $16, %rsp\n\t"
-
-//    "flds (%rsp)\n\t"
     "fpatan\n\t"
     "fstps (%rsp)\n\t"
     "vmovq(%rsp), %xmm0\n\t"
@@ -53,37 +51,24 @@ __asm__(
     "add $16, %rsp\n\t"
     "ret"
 );
-//extern void conjz(float *xy);
-//__asm__ (
-//#ifdef __APPLE_CC__
-//"_conjz: "
-//#else
-//"conjz: "
-//#endif
-//    "movq (%rsi), %rbx\n\t"
-//    "CVTSS2SIQ (%rdi), %rcx\n\t"
-//    "xorq $0x40000000, %rcx\n\t"
-//    "CVTSI2SSQ %rcx, %xmm0\n\t"
-//    "movq %xmm0, (%rsi)\n\t"
-//    "movq %rbx, (%rdi)\n\t"
-////    "negq %rax\n\t"
-//    "ret"
-//);
 
-extern void transform(__m128 *z, __m128 *T);
+extern void conjz(__m128 *z);
 __asm__ (
 //".section:\n.data:\naarr word $1.0, $1.0, $-1.0, $-1.0;\n\t"
 #ifdef __APPLE_CC__
-"_transform: "
+"_conjz: "
 #else
-"transform: "
+"conjz: "
 #endif
-    "mov $1, %rcx\n\t"
-//    "movss %xmm2, (%rcx)\n\t"
-    "vmovaps (%rdi), %xmm1\n\t"
-    "vmulps (%rsi), %xmm1, %xmm0\n\t"
-//    "vpermilps $0x1B, %xmm0, %xmm0\n"
-    "vmovaps %xmm0, (%rdi)\n\t"
+    "push $0x3f800000\n\t"
+    "vbroadcastss (%rsp), %xmm1\n\t" // all ones
+    "pop %rbx\n\t"
+    "xorps %xmm2, %xmm2\n\t" // load zeroes
+    "subps %xmm1, %xmm2\n\t" // -ones
+    "insertps $0xb4, %xmm2, %xmm1\n\t" // 0x44
+    "mulps (%rdi), %xmm1\n\t"
+//    "vpermilps $0x1B, %xmm1, %xmm1\n"
+    "vmovaps %xmm1, (%rdi)\n\t"
     "ret"
 );
 
@@ -95,7 +80,7 @@ union vect {
 void conjz_ps(__m128 *z) {
 
     union vect T = {-1, -1, 1, 1};
-    transform(z, &T.vect);
+//    transform(z, &T.vect);
 //    *z = _mm_permute_ps(*z, _MM_SHUFFLE(3,2,1,0));
 }
 
@@ -121,17 +106,20 @@ void conjz_ps(__m128 *z) {
 //}
 
 int main(void){
-    __m128 z;
     union vect z0 = {2,1,2,1};
     union vect z1 = {4,3,3,4};
 
+    union vect oo = {1,1,1,1};
+    union vect nn = {-1,-1,-1,-1};
+    int i = 0;
+
+    oo.vect = _mm_insert_ps(nn.vect, oo.vect, 2);
+    printf("%d: %f %f %f %f\n", _MM_SHUFFLE(3,2,1,0), oo.vect[0], oo.vect[1], oo.vect[2], oo.vect[3]);
+
     float arg = asmArgz_ps(&z0.vect, &z1.vect);
-    printf("%X\n",_MM_SHUFFLE(3,3,0,0));
     printf("(%.1f + %.1fi) . (%.1f + %.1fi)",  1., 2., 3., 4.);
+    printf(" = (%.1f + %.1fi)\nphase: %f\n", z0.vect[0], z0.vect[3], arg);
 
-    printf(" = (%.1f + %.1fi)\n", z0.vect[0], z0.vect[3]);
-    printf("phase: %f\n", arg);
-
-    conjz_ps(&z0.vect);
+    conjz(&z0.vect);
     printf("conjugate: (%.1f + %.1fi)\n",  z0.vect[0], z0.vect[3]);
 }
