@@ -22,8 +22,8 @@
 #define TIMING_RUNS 4
 #include "timed_functions.h"
 #define MAX_ERROR 1e-6
-#define MIN -2
-#define MAX 2
+#define MIN -10
+#define MAX 10
 #define STEP 1
 //#define DEBUG
 
@@ -110,15 +110,16 @@ static inline float approximateAtan2(const float z, const float y) {
         return (*(uint32_t *)&y & 0x80000000) ? -M_PI : M_PI;
     }
 
-    const float x = z < 0.f && y > 0.f ? z/y: y/z;
+    const float x = y/z;
     const float magX = fabs(x);
     float result = x * (M_PI_4 - (magX - 1) * (0.2447 + 0.0663 * magX));
 
-    if (z < 0.f) {
-        result = y < 0.f ? result - M_PI : M_PI_2 - result;
+    if (z > 0.f) {
+        return result;
     }
 
-    // z >= 0 at this point
+    result += y >= 0.f ? M_PI : -M_PI;
+
     return result;
 
 //    if (fabs(y) > fabs(z)) return M_PI_2*x - result; //result = M_PI_2 - result;
