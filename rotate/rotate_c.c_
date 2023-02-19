@@ -1,0 +1,103 @@
+/*
+ * This file is part of the misc_snippets distribution (https://github.com/peads/misc_snippets).
+ * Copyright (c) 2023 Patrick Eads.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, version 3.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
+ */
+#include <immintrin.h>
+#include <emmintrin.h>
+#include <math.h>
+#define TIMING_RUNS 2
+#include "timed_functions.h"
+#define MAX_ERROR 1e-6
+#define MIN -10
+#define MAX 10
+#define STEP 1
+//#define DEBUG
+#ifdef DEBUG
+#include <stdio.h>
+    #define PRINTF printf
+#else
+    #define PRINTF //
+#endif
+union vect {
+    float arr[4] __attribute__((aligned(16)));
+    __m128 vect;
+};
+
+static void conjz_ps(__m128 *z) {
+
+    union vect T = {-1, -1, -1, -1};
+    *z = _mm_mul_ps(*z, T.vect);
+//    *z = _mm_permute_ps(*z, _MM_SHUFFLE(3,2,1,0));
+}
+
+static float argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 = (ar*br - aj*bj, ar*bj + br*aj)
+
+    *z0 = _mm_mul_ps(*z0, *z1);                // => ar*br, aj*bj, ar*bj, br*aj
+    *z1 = _mm_permute_ps(*z0, _MM_SHUFFLE(2,3,0,1));
+    *z0 = _mm_addsub_ps(*z1, *z0);
+    *z0 = _mm_permute_ps(*z0, _MM_SHUFFLE(3,3,0,0));
+
+    return 0.f;
+}
+
+//float argz(float ar, float aj, float br, float bj, __m128 *z0) {
+//    float result;
+//    union vect u = { .arr =  { aj,ar,aj,ar }};
+//    union vect v = {.arr = { bj,br,br,bj }};
+//
+//    result = argz_ps(&u.vect, &v.vect);
+//    if (z0 != NULL) {
+//        *z0 = _mm_permute_ps(u.vect, _MM_SHUFFLE(3,3,0,0));
+//    }
+//
+//    return result;
+//}
+
+int main(void){
+    static char *runNames[TIMING_RUNS] = {"argz :: ", "conj :: "};
+    float ar, aj, br, bj, arg;
+    struct timespec tstart, tend;
+
+    for (ar = MIN; ar < MAX; ++ar)
+        for (aj = MIN; aj < MAX; ++aj)
+            for (br = MIN; br < MAX; ++br)
+                for (bj = MIN; bj < MAX; ++bj){
+                    union vect u1 = { aj,ar,aj,ar };
+                    union vect v1 = { bj,br,br,bj };
+
+                    clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+                    argz_ps(&u1.vect, &v1.vect);
+                    arg = atan2f(u1.vect[0], u1.vect[3]);
+
+                    clock_gettime(CLOCK_MONOTONIC, &tend);
+                    findDeltaTime(0, &tstart, &tend);
+
+                    PRINTF("(%.1f + %.1fi) . (%.1f + %.1fi)",  1., 2., 3., 4.);
+                    PRINTF(" = (%.1f + %.1fi)\nphase: %f\n", u1.vect[0], u1.vect[3], arg);
+
+                    clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+                    conjz_ps(&u1.vect);
+
+                    clock_gettime(CLOCK_MONOTONIC, &tend);
+                    findDeltaTime(1, &tstart, &tend);
+
+                    PRINTF("conjugate: (%.1f + %.1fi)\n\n", u1.vect[0], u1.vect[3]);
+                }
+
+    printTimedRuns(runNames, TIMING_RUNS);
+    printf("Iterations: %d\n", (MAX - MIN) / STEP + 1);
+}
