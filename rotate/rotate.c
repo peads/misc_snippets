@@ -31,21 +31,24 @@ __asm__(
     "vmulps (%rdi), %xmm1, %xmm2\n\t"
     "vpermilps $0xB1, %xmm2, %xmm1\n\t"
     "vaddsubps %xmm2, %xmm1, %xmm1\n\t"
+    "vpermilps $0xF0, %xmm1, %xmm1\n\t"
     "vmovaps %xmm1, (%rdi)\n\t"
+    "movhlps %xmm1, %xmm2\n\t"
     // push
     "sub $16, %rsp\n\t"
-    "vmovss %xmm1, (%rsp)\n\t"
-    "movhlps %xmm1, %xmm1\n\t"
+    "vmovss %xmm2, (%rsp)\n\t"
+    "flds (%rsp)\n\t"
     // push
     "sub $16, %rsp\n\t"
     "vmovss %xmm1, (%rsp)\n\t"
     "flds (%rsp)\n\t"
     //pop
     "add $16, %rsp\n\t"
-    "flds (%rsp)\n\t"
+
+//    "flds (%rsp)\n\t"
     "fpatan\n\t"
     "fstps (%rsp)\n\t"
-    "vmovss(%rsp), %xmm0\n\t"
+    "vmovq(%rsp), %xmm0\n\t"
     // pop
     "add $16, %rsp\n\t"
     "ret"
@@ -123,12 +126,12 @@ int main(void){
     union vect z1 = {4,3,3,4};
 
     float arg = asmArgz_ps(&z0.vect, &z1.vect);
-
+    printf("%X\n",_MM_SHUFFLE(3,3,0,0));
     printf("(%.1f + %.1fi) . (%.1f + %.1fi)",  1., 2., 3., 4.);
 
     printf(" = (%.1f + %.1fi)\n", z0.vect[0], z0.vect[3]);
     printf("phase: %f\n", arg);
 
     conjz_ps(&z0.vect);
-    printf("conjugate: (%.1f + %.1fi)\n",  z0.vect[1], z0.vect[2]);
+    printf("conjugate: (%.1f + %.1fi)\n",  z0.vect[0], z0.vect[3]);
 }
