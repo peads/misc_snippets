@@ -19,7 +19,7 @@
 #include <immintrin.h>
 #include <emmintrin.h>
 #include <math.h>
-
+#define MAX_ERROR 1e-6
 extern float asmArgz_ps(__m128 *z0, __m128 *z1);
 __asm__(
 #ifdef __APPLE_CC__
@@ -79,18 +79,20 @@ union vect {
 
 void conjz_ps(__m128 *z) {
 
-    union vect T = {-1, -1, 1, 1};
-//    transform(z, &T.vect);
+    union vect T = {-1, -1, -1, -1};
+    *z = _mm_mul_ps(*z, T.vect);
 //    *z = _mm_permute_ps(*z, _MM_SHUFFLE(3,2,1,0));
 }
 
-//float argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 = (ar*br - aj*bj, ar*bj + br*aj)
-//
-//    *z0 = _mm_mul_ps(*z0, *z1);                // => ar*br, aj*bj, ar*bj, br*aj
-//    *z1 = _mm_permute_ps(*z0, _MM_SHUFFLE(2,3,0,1));
-//    *z0 = _mm_addsub_ps(*z1, *z0);
-//    return atan2f((*z0)[3], (*z0)[0]);
-//}
+float argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 = (ar*br - aj*bj, ar*bj + br*aj)
+
+    *z0 = _mm_mul_ps(*z0, *z1);                // => ar*br, aj*bj, ar*bj, br*aj
+    *z1 = _mm_permute_ps(*z0, _MM_SHUFFLE(2,3,0,1));
+    *z0 = _mm_addsub_ps(*z1, *z0);
+    *z0 = _mm_permute_ps(*z0, _MM_SHUFFLE(3,3,0,0));
+
+    return atan2f((*z0)[3], (*z0)[0]);
+}
 
 //float argz(float ar, float aj, float br, float bj, __m128 *z0) {
 //    float result;
@@ -106,20 +108,51 @@ void conjz_ps(__m128 *z) {
 //}
 
 int main(void){
-    union vect z0 = {2,1,2,1};
     union vect z1 = {4,3,3,4};
+    float ar, aj, br, bj, deltaArg, deltaR, deltaJ, deltaConjR, deltaConjJ;
+    float arg[2], zr[2], zj[2], cnjR[2], cnjJ[2];
 
-    union vect oo = {1,1,1,1};
-    union vect nn = {-1,-1,-1,-1};
-    int i = 0;
+    for (ar = -9; ar < 9; ++ar)
+        for (aj = -9; aj < 9; ++aj)
+            for (br = -9; br < 9; ++br)
+                for (bj = -9; bj < 9; ++bj){
+                    union vect u = { aj,ar,aj,ar };
+                    union vect v = { bj,br,br,bj };
 
-    oo.vect = _mm_insert_ps(nn.vect, oo.vect, 2);
-    printf("%d: %f %f %f %f\n", _MM_SHUFFLE(3,2,1,0), oo.vect[0], oo.vect[1], oo.vect[2], oo.vect[3]);
+                    union vect u1 = { aj,ar,aj,ar };
+                    union vect v1 = { bj,br,br,bj };
 
-    float arg = asmArgz_ps(&z0.vect, &z1.vect);
-    printf("(%.1f + %.1fi) . (%.1f + %.1fi)",  1., 2., 3., 4.);
-    printf(" = (%.1f + %.1fi)\nphase: %f\n", z0.vect[0], z0.vect[3], arg);
+                    arg[0] = asmArgz_ps(&u.vect, &v.vect);
+                    zr[0] = u.vect[0];
+                    zj[0] = u.vect[3];
+                    printf("(%.1f + %.1fi) . (%.1f + %.1fi)",  1., 2., 3., 4.);
+                    printf(" = (%.1f + %.1fi)\nphase: %f\n", zr[0], zj[0], arg[0]);
 
-    conjz(&z0.vect);
-    printf("conjugate: (%.1f + %.1fi)\n",  z0.vect[0], z0.vect[3]);
+                    conjz(&u.vect);
+                    cnjR[0] = u.vect[0];
+                    cnjJ[0] = u.vect[3];
+                    printf("conjugate: (%.1f + %.1fi)\n",  u.vect[0], u.vect[3]);
+
+                    arg[1] = argz_ps(&u1.vect, &v1.vect);
+                    zr[1] = u1.vect[0];
+                    zj[1] = u1.vect[3];
+                    printf("(%.1f + %.1fi) . (%.1f + %.1fi)",  1., 2., 3., 4.);
+                    printf(" = (%.1f + %.1fi)\nphase: %f\n", zr[1], zj[1], arg[1]);
+
+                    conjz_ps(&u1.vect);
+                    cnjR[1] = u1.vect[0];
+                    cnjJ[1] = u1.vect[3];
+                    printf("conjugate: (%.1f + %.1fi)\n\n",  u1.vect[0], u1.vect[3]);
+
+                    deltaR = fabs(zr[0] - zr[1]);
+                    deltaJ = fabs(zj[0] - zj[1]);
+                    deltaArg = fabs(arg[0] - arg[1]);
+                    deltaConjR = fabs(cnjR[0] - cnjR[1]);
+                    deltaConjJ = fabs(cnjJ[0] - cnjJ[1]);
+                    assert(deltaArg < MAX_ERROR);
+                    assert(deltaR < MAX_ERROR);
+                    assert(deltaJ < MAX_ERROR);
+                    assert(deltaConjR < MAX_ERROR);
+                    assert(deltaConjJ < MAX_ERROR);
+                }
 }
