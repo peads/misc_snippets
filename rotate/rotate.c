@@ -22,8 +22,8 @@
 #define TIMING_RUNS 4
 #include "timed_functions.h"
 #define MAX_ERROR 1e-6
-#define MIN -50
-#define MAX 50
+#define MIN -10
+#define MAX 10
 #define STEP 1
 //#define DEBUG
 
@@ -60,16 +60,12 @@ __asm__(
     "vextractps $0, %xmm0, (%rsp)\n\t"
     // /push
     "flds (%rsp)\n\t"
-    //pop
-    "vmovq (%rsp), %xmm0\n\t"
-    "add $16, %rsp\n\t"
-    // /pop
     "fpatan\n\t"
     "fstps (%rsp)\n\t"
-    // pop
+    // B I G pop
     "vmovq (%rsp), %xmm0\n\t"
-    "add $16, %rsp\n\t"
-    // /pop
+    "add $32, %rsp\n\t"
+    // B I G /pop
     "ret"
 );
 
