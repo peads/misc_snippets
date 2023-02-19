@@ -41,31 +41,27 @@ __asm__(
 #else
 "asmArgz_ps: "
 #endif
-    "vmovaps	(%rdi), %xmm0\n\t"
-    "vmulps	(%rsi), %xmm0, %xmm0\n\t"
-    "vmovaps	%xmm0, (%rdi)\n\t"
-    "vpermilps	$177, %xmm0, %xmm0\n\t"
-    "vmovaps	%xmm0, (%rsi)\n\t"
-    "vaddsubps	(%rdi), %xmm0, %xmm1\n\t"
-    "vpermilps	$240, %xmm1, %xmm0\n\t"
-    "vmovaps	%xmm0, (%rdi)\n\t"
-
-    // push
-    "sub $16, %rsp\n\t"
-    "vextractps $3, %xmm0, (%rsp)\n\t"
-    // /push
-    "flds (%rsp)\n\t" // push top of CPU stack to x87 stack
-    // push
-    "sub $16, %rsp\n\t"
-    "vextractps $0, %xmm0, (%rsp)\n\t"
-    // /push
-    "flds (%rsp)\n\t"
-    "fpatan\n\t"
-    "fstps (%rsp)\n\t"
-    // B I G pop
-    "vmovq (%rsp), %xmm0\n\t"
-    "add $32, %rsp\n\t"
-    // B I G /pop
+    "vmovaps	(%rdi), %xmm0           \n\t"
+    "vmulps     (%rsi), %xmm0,  %xmm0   \n\t"
+    "vmovaps	%xmm0,  (%rdi)          \n\t"
+    "vpermilps	$177,   %xmm0,  %xmm0   \n\t"
+    "vmovaps	%xmm0,  (%rsi)          \n\t"
+    "vaddsubps	(%rdi), %xmm0,  %xmm1   \n\t"
+    "vpermilps	$240,   %xmm1,  %xmm0   \n\t"
+    "vmovaps	%xmm0,  (%rdi)          \n\t"
+    /* xmm -> x87 "faptain" section */
+    "sub        $16,    %rsp            \n\t"   // emulate push, s.t. xmm can be accessed by the fpu
+    "vextractps $3,     %xmm0,  (%rsp)  \n\t"   // extractps seems to work better here,
+//  "vmovhps    %xmm0,  (%rsp)          \n\t"   // which corresponds to the latency
+    "flds       (%rsp)                  \n\t"   // and throughput tables from intel.
+    "sub        $16,    %rsp            \n\t"   // albeit marginally, that is.
+    "vextractps $0,     %xmm0,  (%rsp)  \n\t"
+    "flds       (%rsp)                  \n\t"
+    "fpatan                             \n\t"
+    "fstps      (%rsp)                  \n\t"
+    // B I G pop emulation
+    "vmovq    (%rsp), %xmm0             \n\t"
+    "add        $32,    %rsp            \n\t"
     "ret"
 );
 
@@ -136,7 +132,7 @@ float approximateAtan2(float y, float x) {
     }
     float a = min/max;
     float s = a * a;
-    float r = a * (1 + s * (-0.327623 + (0.159314 - 0.0464965 * s) *s));//((-0.0464964749 * s + 0.15931422) * s - 0.327622764) * s * a + a;
+    float r = a * (1 + s * (-0.327623 + (0.159314 - 0.0464965 * s) * s));//((-0.0464964749 * s + 0.15931422) * s - 0.327622764) * s * a + a;
 
     if (fabs(y) > fabs(x))  {
         return  M_PI_2 - r;
