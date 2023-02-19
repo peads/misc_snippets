@@ -102,7 +102,7 @@ int signum(double y) {
         uint64_t abs;
     } s = {{y}, s.unf.i >> 63, s.unf.i & DOUBLE_SIGN_MASK};
 
-    return s.abs ? s.signBit ? -1 : 1 : 0;
+    return s.abs & 0x8000000000000000 ? NAN : s.abs ? s.signBit ? -1 : 1 : 0;
 }
 
 int bitScanReverse(uint64_t bb) {
