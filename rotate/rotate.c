@@ -26,6 +26,7 @@
 #define MAX 50
 #define STEP 1
 //#define DEBUG
+
 #ifdef DEBUG
 #include <stdio.h>
     #define PRINTF printf
@@ -33,7 +34,7 @@
     #define PRINTF //
 #endif
 
-extern void asmArgz_ps(__m128 *z0, __m128 *z1);
+extern float asmArgz_ps(__m128 *z0, __m128 *z1);
 __asm__(
 #ifdef __APPLE_CC__
 "_asmArgz_ps: "
@@ -49,28 +50,31 @@ __asm__(
     "vpermilps	$240, %xmm1, %xmm0\n\t"
     "vmovaps	%xmm0, (%rdi)\n\t"
 
-//    "movhlps %xmm0, %xmm2\n\t"
-//    // push
-//    "sub $16, %rsp\n\t"
-//    "vmovss %xmm2, (%rsp)\n\t"
-//    "flds (%rsp)\n\t"
-//    // push
-//    "sub $16, %rsp\n\t"
-//    "vmovss %xmm0, (%rsp)\n\t"
-//    "flds (%rsp)\n\t"
-//    //pop
-//    "add $16, %rsp\n\t"
-//    "fpatan\n\t"
-//    "fstps (%rsp)\n\t"
-//    "vmovq(%rsp), %xmm0\n\t"
-//    // pop
-//    "add $16, %rsp\n\t"
+    // push
+    "sub $16, %rsp\n\t"
+    "vextractps $3, %xmm0, (%rsp)\n\t"
+    // /push
+    "flds (%rsp)\n\t" // push top of CPU stack to x87 stack
+    // push
+    "sub $16, %rsp\n\t"
+    "vextractps $0, %xmm0, (%rsp)\n\t"
+    // /push
+    "flds (%rsp)\n\t"
+    //pop
+    "vmovq (%rsp), %xmm0\n\t"
+    "add $16, %rsp\n\t"
+    // /pop
+    "fpatan\n\t"
+    "fstps (%rsp)\n\t"
+    // pop
+    "vmovq (%rsp), %xmm0\n\t"
+    "add $16, %rsp\n\t"
+    // /pop
     "ret"
 );
 
 extern void conjz(__m128 *z);
 __asm__ (
-//".section:\n.data:\naarr word $1.0, $1.0, $-1.0, $-1.0;\n\t"
 #ifdef __APPLE_CC__
 "_conjz: "
 #else
@@ -97,14 +101,14 @@ void conjz_ps(__m128 *z) {
 //    *z = _mm_permute_ps(*z, _MM_SHUFFLE(3,2,1,0));
 }
 
-void argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 = (ar*br - aj*bj, ar*bj + br*aj)
+float argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 = (ar*br - aj*bj, ar*bj + br*aj)
 
     *z0 = _mm_mul_ps(*z0, *z1);                // => ar*br, aj*bj, ar*bj, br*aj
     *z1 = _mm_permute_ps(*z0, _MM_SHUFFLE(2,3,0,1));
     *z0 = _mm_addsub_ps(*z1, *z0);
     *z0 = _mm_permute_ps(*z0, _MM_SHUFFLE(3,3,0,0));
 
-//    return atan2f((*z0)[3], (*z0)[0]);
+    return atan2f((*z0)[3], (*z0)[0]);
 }
 
 //float argz(float ar, float aj, float br, float bj, __m128 *z0) {
@@ -172,13 +176,13 @@ int main(void){
                     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
 //                    arg[0] = asmArgz_ps(&u.vect, &v.vect);
-                    asmArgz_ps(&u.vect, &v.vect);
+                    arg[0] = asmArgz_ps(&u.vect, &v.vect);
 
                     clock_gettime(CLOCK_MONOTONIC, &tend);
                     findDeltaTime(0, &tstart, &tend);
                     // END TIMED
 
-                    arg[0] = atan2f(u.vect[3], u.vect[0]);
+//                    arg[0] = atan2f(u.vect[3], u.vect[0]);
 //                    approxAtan2 = approximateAtan2(u.vect[3], u.vect[0]);
                     zr[0] = u.vect[0];
                     zj[0] = u.vect[3];
@@ -202,13 +206,13 @@ int main(void){
                     // START_TIMED
                     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-                    argz_ps(&u1.vect, &v1.vect);
+                    arg[1] = argz_ps(&u1.vect, &v1.vect);
 
                     clock_gettime(CLOCK_MONOTONIC, &tend);
                     findDeltaTime(1, &tstart, &tend);
                     // END TIMED
 
-                    arg[1] = atan2f(u1.vect[3], u1.vect[0]);
+//                    arg[1] = atan2f(u1.vect[3], u1.vect[0]);
                     zr[1] = u1.vect[0];
                     zj[1] = u1.vect[3];
                     PRINTF("(%.1f + %.1fi) . (%.1f + %.1fi)",  1., 2., 3., 4.);

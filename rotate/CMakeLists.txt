@@ -4,6 +4,7 @@ project(${PROJECT_NAME} LANGUAGES C)
 set(CMAKE_C_STANDARD 99)
 FILE(GLOB SRCS "*.c")
 
+#add_compile_options(-Wno-format)
 add_executable(${PROJECT_NAME} ${SRCS})
 #add_executable(rotate_c rotate_c.c)
 #add_executable(rotate_asm rotate_asm.c)
