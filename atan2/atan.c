@@ -23,6 +23,12 @@
 #define TIMING_RUNS 2
 #include "timed_functions.h"
 
+#ifdef DEBUG
+    #define PRINTF printf
+#else
+    #define PRINTF //
+#endif
+
 #define MAX_ERROR 1e-2
 #define MIN -200
 #define MAX 200
@@ -122,6 +128,8 @@ __asm__(
     "movq %xmm3, %rcx\n\t"
     "cmp %rdx, %rcx\n\t"
     "jnz xynz\n\t"          // if y also != 0 continue on
+    "pcmpeqd %xmm0, %xmm0\n\t"
+    "vbroadcastss %xmm0, %xmm0\n\t"
     "jmp return\n\t"        // otherwise, bye, felicia
 
 "xynz: "
@@ -140,8 +148,9 @@ __asm__(
     "movq %xmm3, %rcx\n\t"
     "cmp %rdx, %rcx\n\t"
     "jnz ynz\n\t"                // if y also != 0 continue on
-    "movl $0x40490fdb, %ecx\n\t"
-    "vbroadcastss (%rcx), %xmm0\n\t"
+    "movl $0x40490fdb, %edx\n\t"
+    "movq %rdx, %xmm0\n\t"
+    "vbroadcastss %xmm0, %xmm0\n\t"
     "jmp return\n\t"            // otherwise return Pi
 
 "ynz: "
@@ -199,8 +208,11 @@ void arctan2Wrapper(const float x, const float y, float *__restrict__ result) {
 int main(void) {
 
     static char *runNames[TIMING_RUNS] = {"aatan2 :: ", "atan2 :: "};
-    union vect v = {-5, -5, 10, 10};
-    union vect u = {5, 5, 10, 10};
+    static union vect v = {-5, -5, 10, 10};
+    static union vect u = {5, 5, 10, 10};
+    static union vect x = {0,0,0,0};
+    static union vect y = {-1, -1, 0, 0};
+
     int i, j;
     struct atanArgs args;
     float results[TIMING_RUNS], delta;
@@ -217,7 +229,7 @@ int main(void) {
         timeFun((timedFun) runTest, &args, (void *) &(results[1]), 1);
 
         delta = ffabs(results[1]) - ffabs(results[0]);
-        printf("(%d, %d) -> (%f, %f) :: delta: %f\n", i, j, results[0], results[1], delta);
+        PRINTF("(%d, %d) -> (%f, %f) :: delta: %f\n", i, j, results[0], results[1], delta);
 
         assert(ffabs(delta < MAX_ERROR));
         if (j >= MAX) {
@@ -225,20 +237,27 @@ int main(void) {
             i++;
         }
     }
-    union vect x = {0,0,0,0};
-    union vect y = {-1, -1, 0, 0};
 
+    float r = v.arr[0];
+    float k = v.arr[3];
     float az = argz(&v.vect);
-    printf("%f\n", az);
 
+    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
+
+    r = u.arr[0];
+    k = u.arr[3];
     az = argz(&u.vect);
-    printf("%f\n", az);
+    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
 
+    r = x.arr[0];
+    k = x.arr[3];
     az = argz(&x.vect);
-    printf("%f\n", az);
+    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
 
+    r = y.arr[0];
+    k = y.arr[3];
     az = argz(&y.vect);
-    printf("%f\n", az);
+    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
 
     printTimedRuns(runNames, TIMING_RUNS);
     return 0;
