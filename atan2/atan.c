@@ -122,24 +122,33 @@ __asm__(
     "vsqrtps %xmm0, %xmm0\n\t"      // Sqrt[x*x + y*y], ...
     "vaddsubps %xmm2, %xmm0, %xmm0\n\t" // Sqrt[...] +- x alternately, avoids an extra instruction
     "vmovaps %xmm0, (%rdi)\n\t"         // store in argument pointer
-//    "movss %xmm2, %xmm2\n\t"
-//    "movss %xmm3, %xmm3\n\t"
-    "movl $0x0, %edx\n\t"
-    "vmovaps (%rdi), %xmm1\n\t"
-    "cmpps $0x12, %xmm2, %xmm1\n\t"
-    "jnz nx_ynz\n\t"
-    "div %ah\n\t"                   // TODO ***** REMOVE THIS IT THROWS AN EXCEPTION TO TEST JUMPS *****
-    "nx_ynz: "                           // if (x <= 0 && y != 0)...
-    "vdivps %xmm0, %xmm3, %xmm0\n\t" // y / (Sqrt[...] + x), ...
-    // time to call our atan approximation function
-//    "and $-16, %rsp\n\t"
-//    "sub $16, %rsp\n\t"
-//    "vmovdqu %xmm0, (%rsp)\n\t"
-//    "sub $16, %rsp\n\t"
-//    "movdqu %xmm1, (%rsp)\n\t"
-//    "sub $16, %rsp\n\t"
-//    "movdqu %xmm2, (%rsp)\n\t"
 
+    "vxorps %xmm1, %xmm1, %xmm1\n\t"
+    "vcmpless %xmm1, %xmm2, %xmm1\n\t" // if (x > 0) gote .posx
+    "movq %xmm1, %rcx\n\t"
+    "JRCXZ posx\n\t"
+
+"ngx: "
+    "vxorps %xmm1, %xmm1, %xmm1\n\t"
+    "vcmpneqss %xmm1, %xmm3, %xmm1\n\t" // if (y is 0) goto .yz
+    "movq %xmm1, %rcx\n\t"
+    "JRCXZ yz\n\t"
+
+"ngx_ynz: "
+    "vdivps %xmm0, %xmm3, %xmm0\n\t" // y / (Sqrt[...] + x), ...
+    "jmp homestretch\n\t"
+
+"posx: "
+    "vdivps %xmm3, %xmm0, %xmm0\n\t" // (Sqrt[...] - x) / y, ...
+    "jmp homestretch\n\t"
+
+"yz: "                              // TODO y == 0 && x == 0 check should be the first thing done.
+    "vxorps %xmm1, %xmm1, %xmm1\n\t"
+    "vcmpeqss %xmm1, %xmm2, %xmm1\n\t" // if (x is 0) return
+    "movq %xmm1, %rcx\n\t"
+    "jmp return\n\t"
+
+"homestretch: "
     "vextractps $1, %xmm0, %rdx\n\t" // TODO replace this with function call to a one that takes a vector
     "movq %rdx, %xmm0\n\t"
     "sub $128, %rsp\n\t"
@@ -149,12 +158,13 @@ __asm__(
     "add $128, %rsp\n\t"
 
     "movq $0x40000000, %rdx\n\t" // TODO replace this with vector multiply
-                                //0x7FFEEA0FF930 all single packed 2s?
+    //0x7FFEEA0FF930 all single packed 2s?
     "vmovq %rdx, %xmm1\n\t"
     "mulss %xmm1, %xmm0\n\t"
 
+"return: "
     "popq %rbp\n\t"
-    "ret"
+    "ret\n\t"
 );
 
 static void aatan2(const float y, const float x, float *__restrict__ result) {
@@ -186,7 +196,7 @@ int main(void) {
 
     static char *runNames[TIMING_RUNS] = {"aatan2 :: ", "atan2 :: "};
     union vect v = {-5, -5, 10, 10};
-    union vect u = {2, 2, 2, 2};
+    union vect u = {5, 5, 10, 10};
     int i, j;
     struct atanArgs args;
     float results[TIMING_RUNS], delta;
@@ -213,8 +223,12 @@ int main(void) {
     }
 
     float az = argz(&v.vect);
+    union vect x = {M_PI, M_PI, M_PI,M_PI,};
+    printf("%f %llX\n", az, x.vect);
 
+    az = argz(&u.vect);
     printf("%f\n", az);
+
     printTimedRuns(runNames, TIMING_RUNS);
     return 0;
 }
