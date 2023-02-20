@@ -111,7 +111,7 @@ int main(void) {
         float a, b;
         a = b = f;
         timeFun((timedFun) invSqrt, &a, NULL, 0);
-        timeFun((timedFun) asmInvSqrt, &b, NULL, 0);
+        timeFun((timedFun) asmInvSqrt, &b, NULL, 1);
         //printf("sqrt[%f] = %f %f\n", f, a, b);
         d += fabsf(fabsf(a) - fabsf(b));
     }

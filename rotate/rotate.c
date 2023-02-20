@@ -22,8 +22,8 @@
 #define TIMING_RUNS 4
 #include "timed_functions.h"
 #define MAX_ERROR 1e-6
-#define MIN -10
-#define MAX 10
+#define MIN -5
+#define MAX 5
 #define STEP 1
 //#define DEBUG
 
@@ -33,6 +33,31 @@
 #else
     #define PRINTF //
 #endif
+
+extern float ffabs(float f);
+__asm__(
+#ifdef __APPLE_CC__
+"_ffabs: "
+#else
+"ffabs: "
+#endif
+    "movq %xmm0, %rax\n\t"
+    "andl $0x7FFFFFFF, %eax\n\t"
+    "movq %rax, %xmm0\n\t"
+    "ret"
+);
+
+extern int isNegZero(float f);
+__asm__(
+#ifdef __APPLE_CC__
+"_isNegZero: "
+#else
+"isNegZero: "
+#endif
+    "movq %xmm0, %rax\n\t"
+    "andl $0x80000000, %eax\n\t"
+    "ret"
+);
 
 extern float asmArgz_ps(__m128 *z0, __m128 *z1);
 __asm__(
@@ -96,22 +121,23 @@ void conjz_ps(__m128 *z) {
 static long errs;
 
 static inline float approximateAtan2(const float z, const float y) {
+    const float delta = fabs(fabs(z) - fabs(y));
     static const float M_3_PI_2 = 3.f * M_PI_2;
-    // undefined mathematically ***this differs from the atan2 built-in***
-    if (!z && !y) {
-        return NAN;
-    }
 
+    // undefined mathematically ***this differs from the atan2 built-in***
     if (!z) {
-        return y > 0.f ? M_PI_2 : -M_PI_2;
+        return y > 0.f ? M_PI_2 : y < 0.f ? -M_PI_2 : NAN;
     }
 
     if (!y && z < 0.f) {
-        return (*(uint32_t *)&y & 0x80000000) ? -M_PI : M_PI;
+        return isNegZero(y) ? -M_PI : M_PI;
     }
 
-    const float x = y/z;
-    const float magX = fabs(x);
+//    const uint32_t absX = ffabs(z);
+//    const uint32_t absY = ffabs(y);
+
+    const float x = delta > 150.f ? z/y : y/z;
+    const float magX = ffabs(x);
     float result = x * (M_PI_4 - (magX - 1) * (0.2447 + 0.0663 * magX));
 
     if (z > 0.f) {
@@ -144,10 +170,12 @@ float argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 =
     float arg= atan2f(y, x);
 
 
+    const float delta = fabs(x) - fabs(y);
     if (fabs(arg - approxAtan2) > M_2_PI) {
-        int sgn = signum(y);
+        printf("delta x y: %f: divisible by 2? %d\n", delta, fmodf(delta, 2.f) == 0);
+
         printf( "*** for (%.2f + %.2fi) phase: %f, approximated phase: %f%s***\n", x, y, arg, approxAtan2,
-                (signum(x) & sgn) ? " " : " x and y of opposite sign ");
+                (signum(x) & signum(y)) ? " " : " x and y of opposite sign ");
 //        if (sgn == -0) printf("NEGATIVE ZERO\n");
         errs++;
     }

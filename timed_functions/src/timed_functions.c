@@ -78,7 +78,7 @@ void timeFun(timedFun fun, void *s, void **result, int i) {
 
     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-    fun(s, result != NULL ? &(result[i]) : NULL);
+    fun(s, result != NULL ? result : NULL);
 
     clock_gettime(CLOCK_MONOTONIC, &tend);
 
