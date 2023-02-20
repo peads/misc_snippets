@@ -111,11 +111,20 @@ __asm__(
     "and $-16, %rsp\n\t"
 
     "vmovaps (%rdi), %xmm0\n\t"
-    //    "vextractps $3, %xmm0, %rcx\n\t" // x
-    //    "vextractps $0, %xmm0, %rdx\n\t" // y
-    //    "vbroadcastss (%rcx), %xmm2\n\t"
     "vpermilps $0x0, %xmm0, %xmm2\n\t" // {x, x, x, x}
     "vpermilps $0xFF, %xmm0, %xmm3\n\t" // {y, y, y, y}
+
+    "xorq %rdx, %rdx\n\t"
+    "movq %xmm2, %rcx\n\t"
+    "cmp %rdx, %rcx\n\t"
+    "jnz xynz\n\t"          // if x != 0 continue on
+
+    "movq %xmm3, %rcx\n\t"
+    "cmp %rdx, %rcx\n\t"
+    "jnz xynz\n\t"          // if y also != 0 continue on
+    "jmp return\n\t"        // otherwise, bye, felicia
+
+"xynz: "
     "vmulps %xmm0, %xmm0, %xmm0\n\t" // x*x, x*x, y*y, y*y
     "vpermilps $0x1B, %xmm0, %xmm1\n\t"
     "vaddps %xmm1, %xmm0, %xmm0\n\t" // x*x + y*y, ...
@@ -128,25 +137,12 @@ __asm__(
     "movq %xmm1, %rcx\n\t"
     "JRCXZ posx\n\t"
 
-"ngx: "
-    "vxorps %xmm1, %xmm1, %xmm1\n\t"
-    "vcmpneqss %xmm1, %xmm3, %xmm1\n\t" // if (y is 0) goto .yz
-    "movq %xmm1, %rcx\n\t"
-    "JRCXZ yz\n\t"
-
-"ngx_ynz: "
     "vdivps %xmm0, %xmm3, %xmm0\n\t" // y / (Sqrt[...] + x), ...
     "jmp homestretch\n\t"
 
 "posx: "
     "vdivps %xmm3, %xmm0, %xmm0\n\t" // (Sqrt[...] - x) / y, ...
     "jmp homestretch\n\t"
-
-"yz: "                              // TODO y == 0 && x == 0 check should be the first thing done.
-    "vxorps %xmm1, %xmm1, %xmm1\n\t"
-    "vcmpeqss %xmm1, %xmm2, %xmm1\n\t" // if (x is 0) return
-    "movq %xmm1, %rcx\n\t"
-    "jmp return\n\t"
 
 "homestretch: "
     "vextractps $1, %xmm0, %rdx\n\t" // TODO replace this with function call to a one that takes a vector
