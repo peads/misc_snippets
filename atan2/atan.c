@@ -130,13 +130,21 @@ __asm__(
     "vaddps %xmm1, %xmm0, %xmm0\n\t" // x*x + y*y, ...
     "vsqrtps %xmm0, %xmm0\n\t"      // Sqrt[x*x + y*y], ...
     "vaddsubps %xmm2, %xmm0, %xmm0\n\t" // Sqrt[...] +- x alternately, avoids an extra instruction
-    "vmovaps %xmm0, (%rdi)\n\t"         // store in argument pointer
+    "vmovaps %xmm0, (%rdi)\n\t"         // store in return argument
 
     "vxorps %xmm1, %xmm1, %xmm1\n\t"
-    "vcmpless %xmm1, %xmm2, %xmm1\n\t" // if (x > 0) gote .posx
+    "vcmpless %xmm1, %xmm2, %xmm1\n\t"
     "movq %xmm1, %rcx\n\t"
-    "JRCXZ posx\n\t"
+    "jrcxz posx\n\t"            // if (x > 0) gote .posx
 
+    "movq %xmm3, %rcx\n\t"
+    "cmp %rdx, %rcx\n\t"
+    "jnz ynz\n\t"                // if y also != 0 continue on
+    "movl $0x40490fdb, %ecx\n\t"
+    "vbroadcastss (%rcx), %xmm0\n\t"
+    "jmp return\n\t"            // otherwise return Pi
+
+"ynz: "
     "vdivps %xmm0, %xmm3, %xmm0\n\t" // y / (Sqrt[...] + x), ...
     "jmp homestretch\n\t"
 
@@ -217,12 +225,19 @@ int main(void) {
             i++;
         }
     }
+    union vect x = {0,0,0,0};
+    union vect y = {-1, -1, 0, 0};
 
     float az = argz(&v.vect);
-    union vect x = {M_PI, M_PI, M_PI,M_PI,};
-    printf("%f %llX\n", az, x.vect);
+    printf("%f\n", az);
 
     az = argz(&u.vect);
+    printf("%f\n", az);
+
+    az = argz(&x.vect);
+    printf("%f\n", az);
+
+    az = argz(&y.vect);
     printf("%f\n", az);
 
     printTimedRuns(runNames, TIMING_RUNS);
