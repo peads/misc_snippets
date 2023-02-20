@@ -121,10 +121,16 @@ __asm__(
     "vaddps %xmm1, %xmm0, %xmm0\n\t" // x*x + y*y, ...
     "vsqrtps %xmm0, %xmm0\n\t"      // Sqrt[x*x + y*y], ...
     "vaddsubps %xmm2, %xmm0, %xmm0\n\t" // Sqrt[...] +- x alternately, avoids an extra instruction
+    "vmovaps %xmm0, (%rdi)\n\t"         // store in argument pointer
+//    "movss %xmm2, %xmm2\n\t"
+//    "movss %xmm3, %xmm3\n\t"
+    "movl $0x0, %edx\n\t"
+    "vmovaps (%rdi), %xmm1\n\t"
+    "cmpps $0x12, %xmm2, %xmm1\n\t"
+    "jnz nx_ynz\n\t"
+    "div %ah\n\t"                   // TODO ***** REMOVE THIS IT THROWS AN EXCEPTION TO TEST JUMPS *****
     "nx_ynz: "                           // if (x <= 0 && y != 0)...
     "vdivps %xmm0, %xmm3, %xmm0\n\t" // y / (Sqrt[...] + x), ...
-
-    "vmovaps %xmm0, (%rdi)\n\t"
     // time to call our atan approximation function
 //    "and $-16, %rsp\n\t"
 //    "sub $16, %rsp\n\t"
@@ -134,11 +140,10 @@ __asm__(
 //    "sub $16, %rsp\n\t"
 //    "movdqu %xmm2, (%rsp)\n\t"
 
-    "vextractps $1, %xmm0, %rdx\n\t"
+    "vextractps $1, %xmm0, %rdx\n\t" // TODO replace this with function call to a one that takes a vector
     "movq %rdx, %xmm0\n\t"
     "sub $128, %rsp\n\t"
     "mov %rsp, %rdx\n\t"
-//    "movss %xmm0, %xmm0\n\t" // TODO replace this with function call to a one that takes a vector
     "call _atanf\n\t"
     "mov %rdx, %rsp\n\t"
     "add $128, %rsp\n\t"
