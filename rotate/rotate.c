@@ -118,43 +118,6 @@ void conjz_ps(__m128 *z) {
 //    *z = _mm_permute_ps(*z, _MM_SHUFFLE(3,2,1,0));
 }
 
-static long errs;
-
-static inline float approximateAtan2(const float z, const float y) {
-    const float delta = fabs(fabs(z) - fabs(y));
-    static const float M_3_PI_2 = 3.f * M_PI_2;
-
-    // undefined mathematically ***this differs from the atan2 built-in***
-    if (!z) {
-        return y > 0.f ? M_PI_2 : y < 0.f ? -M_PI_2 : NAN;
-    }
-
-    if (!y && z < 0.f) {
-        return isNegZero(y) ? -M_PI : M_PI;
-    }
-
-//    const uint32_t absX = ffabs(z);
-//    const uint32_t absY = ffabs(y);
-
-    const float x = delta > 150.f ? z/y : y/z;
-    const float magX = ffabs(x);
-    float result = x * (M_PI_4 - (magX - 1) * (0.2447 + 0.0663 * magX));
-
-    if (z > 0.f) {
-        return result;
-    }
-
-    result += y >= 0.f ? M_PI : -M_PI;
-
-    return result;
-
-//    if (fabs(y) > fabs(z)) return M_PI_2*x - result; //result = M_PI_2 - result;
-//    if (x < 0.f) return  M_PI*x - result; //result = M_PI - result;
-//    if (y < 0.f) return -M_PI_2*x + result;  //result = -result;
-//
-//    return M_PI_4*x - result;
-}
-
 float argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 = (ar*br - aj*bj, ar*bj + br*aj)
 
     *z0 = _mm_mul_ps(*z0, *z1);                // => ar*br, aj*bj, ar*bj, br*aj
@@ -163,24 +126,22 @@ float argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 =
     *z0 = _mm_permute_ps(*z0, _MM_SHUFFLE(3,3,0,0));
 
     long temp = _mm_extract_ps(*z0, 3);
-    float y = *(float*)&temp;
+    const float y = *(float*)&temp;
     temp = _mm_extract_ps(*z0, 0);
-    float x = *(float*)&temp;
-    float approxAtan2 = approximateAtan2(x, y);
-    float arg= atan2f(y, x);
+    const float x = *(float*)&temp;
+//    float approxAtan2 = approximateAtan2(x, y);
+    return atan2f(y, x);
 
 
-    const float delta = fabs(x) - fabs(y);
-    if (fabs(arg - approxAtan2) > M_2_PI) {
-        printf("delta x y: %f: divisible by 2? %d\n", delta, fmodf(delta, 2.f) == 0);
-
-        printf( "*** for (%.2f + %.2fi) phase: %f, approximated phase: %f%s***\n", x, y, arg, approxAtan2,
-                (signum(x) & signum(y)) ? " " : " x and y of opposite sign ");
-//        if (sgn == -0) printf("NEGATIVE ZERO\n");
-        errs++;
-    }
-
-    return arg;
+//    const float delta = fabs(x) - fabs(y);
+//    if (fabs(arg - approxAtan2) > M_2_PI) {
+//        printf("delta x y: %f: divisible by 2? %d\n", delta, fmodf(delta, 2.f) == 0);
+//
+//        printf( "*** for (%.2f + %.2fi) phase: %f, approximated phase: %f%s***\n", x, y, arg, approxAtan2,
+//                (signum(x) & signum(y)) ? " " : " x and y of opposite sign ");
+////        if (sgn == -0) printf("NEGATIVE ZERO\n");
+//        errs++;
+//    }
 }
 
 //float argz(float ar, float aj, float br, float bj, __m128 *z0) {
@@ -202,6 +163,10 @@ int main(void){
     float arg[2], zr[2], zj[2], cnjR[2], cnjJ[2];
     struct timespec tstart, tend;
     uint64_t n = 0;
+
+    union vect x = { 2,1,2,1 };
+    union vect y = {4, 3, 3, 4};
+    asmArgz_ps(&x.vect, &y.vect);
 
     for (ar = MIN; ar < MAX; ++ar)
         for (aj = MIN; aj < MAX; ++aj)
@@ -279,5 +244,5 @@ int main(void){
                 }
 
     printTimedRuns(runNames, TIMING_RUNS);
-    printf("Iterations: %ld, Approximation errors: %ld, Percent: %.2f%%\n", n, errs, 100.0*errs/n);
+    printf("Iterations: %ld\n", n);
 }

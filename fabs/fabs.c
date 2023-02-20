@@ -90,7 +90,8 @@ int main(void) {
 
         x = y;
         timeFun((timedFun) sneakyFabs2, &y, (void *) &(results[0]), 0);
-        timeFun((timedFun) sneakyFabs, &y, (void *) &(results[0]), 4);
+
+        timeFun((timedFun) sneakyFabs, &y, (void *) &(results[4]), 4);
 
         // START_TIMED
         clock_gettime(CLOCK_MONOTONIC, &tstart);
@@ -119,18 +120,14 @@ int main(void) {
         clock_gettime(CLOCK_MONOTONIC, &tend);
         findDeltaTime(3, &tstart, &tend);
         // END TIMED
-
-//        timeFun((timedFun) sneakyFabs1, &x, (void *) &(results[1]), 1);
-//        timeFun((timedFun) fabsWrapper, &x, (void *) &(results[2]), 2);
-//        timeFun((timedFun) sneakyFabs2, &x, (void *) &(results[3]), 3);
-
 #ifdef DEBUG
-        printf("x: %f :: %f %f %f %f\n", x, results[0], results[1], results[2], results[3]);
+        printf("x: %f :: %f %f %f %f %f\n", x, results[0], results[1], results[2], results[3], results[4]);
         if (results[0] != results[1]) err++;
 #endif
-        assert(fabs(results[3] - results[0]) < MAX_ERROR
-            && fabs(results[3] - results[1]) < MAX_ERROR
-            && fabs(results[3] - results[2]) < MAX_ERROR);
+        assert(fabs(results[3] - results[1]) < MAX_ERROR
+            && fabs(results[3] - results[2]) < MAX_ERROR
+            && fabs(results[3] - results[0]) < MAX_ERROR
+            && fabs(results[3] - results[4]) < MAX_ERROR);
     }
     printTimedRuns(runNames, TIMING_RUNS);
     PRINTF("iterations: %d, %.2f%%\n", n, 100.f*err/n);
