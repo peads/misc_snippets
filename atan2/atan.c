@@ -20,7 +20,7 @@
 #include <emmintrin.h>
 #include <math.h>
 
-#define TIMING_RUNS 3
+#define TIMING_RUNS 2
 #include "timed_functions.h"
 
 #ifdef DEBUG
@@ -29,7 +29,7 @@
     #define PRINTF //
 #endif
 
-#define MAX_ERROR 0
+#define MAX_ERROR 10e-3
 #define MIN -200
 #define MAX 200
 #define STEP 1
@@ -137,6 +137,7 @@ __asm__(
 //    "mulss %xmm1, %xmm0\n\t"
 
 "return: "
+    "movq  %rbp, %rsp\n\t"
     "popq %rbp\n\t"
     "ret\n\t"
 );
@@ -162,7 +163,7 @@ static inline void runTest(struct atanArgs *args, float *__restrict__ result) {
     args->fun(args->x, args->y, result);
 }
 
-static void arctan2Wrapper(const float x, const float y, float *__restrict__ result) {
+static inline void arctan2Wrapper(const float x, const float y, float *__restrict__ result) {
     *result = atan2(x,y);
 }
 
@@ -180,13 +181,12 @@ int main(void) {
     struct atanArgs args;
     float results[TIMING_RUNS], delta;
 
-//    printf("%X %llX\n", _MM_SHUFFLE(0,1,2,3), u.vect);
     for (i = j = MIN; i < MAX; j += STEP) {
         args.x = i;
         args.y = j;
 
         // z_norm = (x + iy) / ||(x + iy)|| =  (x + iy) / Sqrt[x^2 + y^2]
-        float norm = sqrtf(i*i + j*j);
+        float norm = sqrtf(i * i + j * j);
         args.x /= norm;
         args.y /= norm;
 
@@ -196,13 +196,14 @@ int main(void) {
         args.fun = arctan2Wrapper;
         timeFun((timedFun) runTest, &args, (void *) &(results[1]), 1);
 
-        args.fun = aatan;
-        timeFun((timedFun) runTest, &args, (void *) &(results[2]), 2);
-
         delta = ffabsf(results[1]) - ffabsf(results[0]);
-        printf("(%d, %d) -> (%f, %f %f) :: delta: %f\n", i, j, results[0], results[1], delta);
+        PRINTF("(%d, %d) -> (%f, %f) :: delta: %f\n", i, j, results[0], results[1], delta);
 
-//        assert(ffabs(delta < MAX_ERROR) && ffabs(ffabs(results[1]) - ffabsf(results[2])));
+        if (!(isnan(results[0]) || isnan(results[1]))) {
+
+            assert(ffabsf(delta < MAX_ERROR));
+        }
+
         if (j >= MAX) {
             j = MIN;
             i++;
