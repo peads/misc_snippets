@@ -58,7 +58,7 @@ __asm__ (
     "movq $63, %rax\n\t"
     "subq %rdx, %rax\n\t"
     "ret\n\t"
-"zero:\n\t"
+"zero: "
     "movq $-1023, %rax\n\t"
     "ret"
 );

@@ -30,18 +30,7 @@
 #define MAX_ERROR 1e-9
 #define ABS_MASK 0x7FFFFFFF
 
-extern float ffabs(float f);
-__asm__(
-#ifdef __APPLE_CC__
-"_ffabs: "
-#else
-"ffabs: "
-#endif
-    "movq %xmm0, %rax\n\t"
-    "andl $0x7FFFFFFF, %eax\n\t"
-    "movq %rax, %xmm0\n\t"
-    "ret"
-);
+extern float ffabsf(float f);
 
 extern void fpabs(float *f);
 __asm__(
@@ -66,21 +55,13 @@ static inline void sneakyFabs2(float *__restrict__ x, float *__restrict__ result
     *result = unf.f;
 }
 
-//static inline void sneakyFabs1(float *__restrict__ x, float *__restrict__ result) {
-//    __asm__ (
-//        "movl $0x7FFFFFFF, %eax\n\t"
-//        "andl (%rdi), %eax\n\t"
-//        "movl %eax, (%rsi)\n\t"
-//    );
-//}
-
 static inline void sneakyFabs(float *__restrict__ x, float *__restrict__ result) {
     uint32_t absX = (*(uint32_t *)x) & ABS_MASK;
     *result = (*(float *)&absX);
 }
 
 int main(void) {
-    static char *runNames[TIMING_RUNS] = {"sneakyFabs2 :: ", "ffabs :: ","fpabs :: ", "fabs :: ", "sneakyFabs2 :: "};
+    static char *runNames[TIMING_RUNS] = {"sneakyFabs2 :: ", "ffabsf :: ","fpabs :: ", "fabs :: ", "sneakyFabs2 :: "};
     struct timespec tstart, tend;
 
     int n, err;
@@ -96,7 +77,7 @@ int main(void) {
         // START_TIMED
         clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-        results[1] = ffabs(x);
+        results[1] = ffabsf(x);
 
         clock_gettime(CLOCK_MONOTONIC, &tend);
         findDeltaTime(1, &tstart, &tend);

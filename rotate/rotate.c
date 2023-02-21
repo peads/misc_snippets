@@ -34,18 +34,7 @@
     #define PRINTF //
 #endif
 
-extern float ffabs(float f);
-__asm__(
-#ifdef __APPLE_CC__
-"_ffabs: "
-#else
-"ffabs: "
-#endif
-    "movq %xmm0, %rax\n\t"
-    "andl $0x7FFFFFFF, %eax\n\t"
-    "movq %rax, %xmm0\n\t"
-    "ret"
-);
+extern float ffabsf(float f);
 
 extern int isNegZero(float f);
 __asm__(
@@ -129,33 +118,9 @@ float argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 =
     const float y = *(float*)&temp;
     temp = _mm_extract_ps(*z0, 0);
     const float x = *(float*)&temp;
-//    float approxAtan2 = approximateAtan2(x, y);
+
     return atan2f(y, x);
-
-
-//    const float delta = fabs(x) - fabs(y);
-//    if (fabs(arg - approxAtan2) > M_2_PI) {
-//        printf("delta x y: %f: divisible by 2? %d\n", delta, fmodf(delta, 2.f) == 0);
-//
-//        printf( "*** for (%.2f + %.2fi) phase: %f, approximated phase: %f%s***\n", x, y, arg, approxAtan2,
-//                (signum(x) & signum(y)) ? " " : " x and y of opposite sign ");
-////        if (sgn == -0) printf("NEGATIVE ZERO\n");
-//        errs++;
-//    }
 }
-
-//float argz(float ar, float aj, float br, float bj, __m128 *z0) {
-//    float result;
-//    union vect u = { .arr =  { aj,ar,aj,ar }};
-//    union vect v = {.arr = { bj,br,br,bj }};
-//
-//    result = argz_ps(&u.vect, &v.vect);
-//    if (z0 != NULL) {
-//        *z0 = _mm_permute_ps(u.vect, _MM_SHUFFLE(3,3,0,0));
-//    }
-//
-//    return result;
-//}
 
 int main(void){
     static char *runNames[TIMING_RUNS] = {"asmArgz_ps :: ", "argz_ps :: ", "conjz :: ", "conjz_ps :: "};\
