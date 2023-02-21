@@ -24,82 +24,41 @@
 
 static const uint8_t SIZE = TIMING_RUNS >> 1;
 
-extern float ffabsf(float f);
-
-float vectorSqrtf(float n __attribute__((aligned(16)))) {
-
-    __asm__ __volatile__(
-#ifdef X86
-        "sqrtss  %0, %0"
-#else
-        "VSQRT.F32 %0, %0"
-#endif
-        : "+x" (n)
-    );
-    return n;
-}
-
-double vectorSqrt(double n __attribute__((aligned(16)))) {
-#if !defined(x86_64) && !defined(ARM64)
-    return vectorSqrtf(n); 
-#else
-    __asm__ __volatile__(
-#ifdef X86
-        "sqrtsd %0, %0" 
-#else
-        "VSQRT.F64 %0, %0"
-#endif
-        : "+x" (n)
-    );
-
-    return n;
-#endif
-}
 
 extern float __attribute__((aligned(16))) fsqrtf(float n __attribute__((aligned(16))));
+extern float __attribute__((aligned(16))) fsqrt(float n __attribute__((aligned(16))));
+extern float ffabsf(float f);
+
+
+// The next two are too trivially to be implemented as to not be worth putting in the header
+extern float vectorSqrtf(float n __attribute__((aligned(16))));
 __asm__ (
 #ifdef __clang__
-"_fsqrtf: "
+"_vectorSqrtf: "
 #else
-"fsqrtf: "
+"vectorSqrtf: "
 #endif
-#ifndef X86
-    //TODO implement below in ARM asm
-#else
-    "subq $16, %rsp\n\t"
-    "movdqu %xmm0, (%rsp)\n\t"
-
-    "flds (%rsp)\n\t"
-    "fsqrt\n\t"
-    "fstps (%rsp)\n\t"
-
-    "movdqu (%rsp), %xmm0\n\t"
-    "addq $16, %rsp\n\t"
-
+#ifdef X86
+    "vsqrtss %xmm0, %xmm1, %xmm0\n\t"
     "ret"
+#else
+    "VSQRT.F32 %0, %0" // TODO fix ARM implmentaton
 #endif
 );
-extern float __attribute__((aligned(16))) fsqrt(float n __attribute__((aligned(16))));
+
+extern double vectorSqrt(double n __attribute__((aligned(16))));
 __asm__ (
 #ifdef __clang__
-"_fsqrt: "
+"_vectorSqrt: "
 #else
-"fsqrt: "
+"vectorSqrt: "
 #endif
-#ifndef X86
-    //TODO implement below in ARM asm
-#else
-    "subq $16, %rsp\n\t"
-    "movdqu %xmm0, (%rsp)\n\t"
 
-    "fldl (%rsp)\n\t"
-    "fsqrt\n\t"
-    "fstpl (%rsp)\n\t"
-
-    "movdqu (%rsp), %xmm0\n\t"
-    "addq $16, %rsp\n\t"
-
+#ifdef X86
+    "vsqrtsd %xmm0, %xmm1, %xmm0\n\t"
     "ret"
+#else
+    "VSQRT.F64 %0, %0" // TODO fix ARM implmentaton
 #endif
 );
 
