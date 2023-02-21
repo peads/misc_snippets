@@ -29,31 +29,183 @@
 #include <unistd.h>
 #include <assert.h>
 
-#define DOUBLE_SIGN_MASK 0x7FFFFFFFFFFFFFFF
+#define NINE_THIRTY_SECONDS 0.28125
+#define FLOAT_S_FLIP_MASK  0x7FFFFFFFU
+#define FLOAT_E_MASK       0x7F8FFFFFU
+#define FLOAT_S_MASK       0x80000000U
+#define FLOAT_M_MASK       0x007FFFFFU
+#define FLOAT_SHIFT        23U
+#define DOUBLE_S_FLIP_MASK  0x7FFFFFFFFFFFFFFFLU
+#define DOUBLE_E_MASK       0x7F8FFFFFFFFFFFFFLU
+#define DOUBLE_S_MASK       0x8000000000000000LU
+#define DOUBLE_M_MASK       0x007FFFFFFFFFFFFFLU
+#define DOUBLE_SHIFT        52LU
+#define BYTE_TO_BINARY_PATTERN "%c%c%c%c%c%c%c%c"
+#define BYTE_TO_BINARY(byte)  \
+      (byte & 0x80 ? '1' : '0'), \
+      (byte & 0x40 ? '1' : '0'), \
+      (byte & 0x20 ? '1' : '0'), \
+      (byte & 0x10 ? '1' : '0'), \
+      (byte & 0x08 ? '1' : '0'), \
+      (byte & 0x04 ? '1' : '0'), \
+      (byte & 0x02 ? '1' : '0'), \
+      (byte & 0x01 ? '1' : '0')
+#if defined(__x86_64__) || defined(_M_X64)
+    #define x86_64
+    #define X86
+#elif defined(i386) || defined(__i386__) || defined(__i386) || defined(_M_IX86)
 
-typedef uint8_t (*timedFunF)(float n);
-typedef uint8_t (*timedFunD)(double n);
+#define x86_32
+    #define X86
+#elif defined(__ARM_ARCH_2__)
+    #define ARM
+    #define ARM2
+#elif defined(__ARM_ARCH_3__) || defined(__ARM_ARCH_3M__)
+    #define ARM
+    #define ARM3
+#elif defined(__ARM_ARCH_4T__) || defined(__TARGET_ARM_4T)
+    #define ARM
+    #define ARM4T
+#elif defined(__ARM_ARCH_5_) || defined(__ARM_ARCH_5E_)
+    #define ARM
+    #define ARM5
+#elif defined(__ARM_ARCH_6T2_) || defined(__ARM_ARCH_6T2_)
+    #define ARM
+    #define ARM6T2
+#elif defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) || defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__)
+    #define ARM
+    #define ARM6
+#elif defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+    #define ARM
+    #define ARM7
+#elif defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+    #define ARM
+    #define ARM7
+    #define ARM7A
+#elif defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
+    #define ARM
+    #define ARM7
+    #define ARM7R
+#elif defined(__ARM_ARCH_7M__)
+    #define ARM
+    #define ARM7
+    #define ARM7M
+#elif defined(__ARM_ARCH_7S__)
+    #define ARM
+    #define ARM7
+    #define ARM7S
+#elif defined(__aarch64__) || defined(_M_ARM64)
+    #define ARM
+    #define ARM64
+#endif
+
+typedef float (*timedFunF)(float n);
+typedef double (*timedFunD)(double n);
 typedef void (*timedFun)(void *n, void *result);
-typedef union {
+
+union unDouble {
     double f;
     uint64_t i;
-    double *ptr;
-} unDouble;
+};
+
+union unFloat {
+    float f;
+    uint32_t i;
+};
+
+static const uint32_t FLOAT_E_MAX = FLOAT_E_MASK >> FLOAT_SHIFT;
+static const uint32_t FLOAT_IMPLIED_BIT = FLOAT_M_MASK + 1U;
+
+static const uint64_t DOUBLE_E_MAX = DOUBLE_E_MASK >> DOUBLE_SHIFT;
+static const uint64_t DOUBLE_IMPLIED_BIT = DOUBLE_M_MASK + 1LU;
 
 static long double rollingTimeAvgs[TIMING_RUNS];
 
-void findDeltaTime(int idx, const struct timespec *tstart, const struct timespec *tend);
-//uint8_t timeFunD(timedFunD fun, double s, int i);
-//uint8_t timeFunF(timedFunF fun, float s, int i);
+void findDeltaTime(int idx, const struct timespec *__restrict__ tstart, const struct timespec *__restrict__ tend);
 
-void timeFun(timedFun fun, void *s, void **result, int i);
+void timeFun(timedFun fun, void *__restrict__ s, void **__restrict__ result, int i);
 
-void printTimedRuns(char **runNames, uint32_t length);
+union unFloat timeFunf(timedFunF fun, float s, int i);
 
-int signum(double y);
+union unDouble timeFund(timedFunD fun, double s, int i);
 
-uint64_t findMsb(uint64_t n);
+void printTimedRuns(char **__restrict__ runNames, const uint32_t length);
 
-int bitScanReverse(uint64_t bb);
+int signumf(float y __attribute__((aligned(16))));
 
+int signum(double y __attribute__((aligned(16))));
+
+uint64_t findMsb(uint64_t n __attribute__((aligned(16))));
+
+int bitScanReverse(uint64_t bb __attribute__((aligned(16))));
+
+float sqrtApproxf(const float z __attribute__((aligned(16))));
+
+double sqrtApprox(const double z __attribute__((aligned(16))));
+
+uint32_t dividByPow2f(float *__restrict__ x __attribute__((aligned(16))), int16_t n __attribute__((aligned(16))));
+
+float __attribute__((aligned(16))) aatan(const float z __attribute__((aligned(16))));
+
+float sqrtApproxf(const float z);
+
+double sqrtApprox(const double z);
+
+// TODO implement double precision version of below
+__asm__(
+#ifdef __clang__
+"_ffabsf: "
+#else
+"ffabsf: "
+#endif
+    "movq %xmm0, %rax\n\t"
+    "andl $0x7FFFFFFF, %eax\n\t"
+    "movq %rax, %xmm0\n\t"
+    "ret"
+);
+
+__asm__ (
+#ifdef __clang__
+"_fsqrt: "
+#else
+"fsqrt: "
+#endif
+#ifndef X86
+//TODO implement below in ARM asm
+#else
+    "subq $16, %rsp\n\t"
+    "movdqu %xmm0, (%rsp)\n\t"
+
+    "fldl (%rsp)\n\t"
+    "fsqrt\n\t"
+    "fstpl (%rsp)\n\t"
+
+    "movdqu (%rsp), %xmm0\n\t"
+    "addq $16, %rsp\n\t"
+
+    "ret"
+#endif
+);
+__asm__ (
+#ifdef __clang__
+"_fsqrtf: "
+#else
+"fsqrtf: "
+#endif
+#ifndef X86
+//TODO implement below in ARM asm
+#else
+    "subq $16, %rsp\n\t"
+    "movdqu %xmm0, (%rsp)\n\t"
+
+    "flds (%rsp)\n\t"
+    "fsqrt\n\t"
+    "fstps (%rsp)\n\t"
+
+    "movdqu (%rsp), %xmm0\n\t"
+    "addq $16, %rsp\n\t"
+
+    "ret"
+#endif
+);
 #endif //TIMED_FUNCTIONS_H
