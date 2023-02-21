@@ -15,15 +15,10 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdio.h>
 #include <immintrin.h>
-#include <time.h>
 //#include <emmintrin.h>
-#include <math.h>
-#include <stdint.h>
 
 #define TIMING_RUNS 4
-#include <assert.h>
 #include "timed_functions.h"
 
 #define MAX_ITERATIONS 16
