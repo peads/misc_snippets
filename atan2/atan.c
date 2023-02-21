@@ -14,14 +14,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-#include <stdio.h>
-#include <assert.h>
-#include <immintrin.h>
 #include <emmintrin.h>
-#include <math.h>
-
 #define TIMING_RUNS 2
 #include "timed_functions.h"
+
+//#define DEBUG
 
 #ifdef DEBUG
     #define PRINTF printf
@@ -131,10 +128,10 @@ __asm__(
     "mov %rdx, %rsp\n\t"
     "add $128, %rsp\n\t"
 
-//    "movq $0x40000000, %rdx\n\t" // TODO replace this with vector multiply
-//    //0x7FFEEA0FF930 all packed 2.fs?
-//    "vmovq %rdx, %xmm1\n\t"
-//    "mulss %xmm1, %xmm0\n\t"
+    "movq $0x40000000, %rdx\n\t" // TODO replace this with vector multiply
+    //0x7FFEEA0FF930 all packed 2.fs?
+    "vmovq %rdx, %xmm1\n\t"
+    "mulss %xmm1, %xmm0\n\t"
 
 "return: "
     "movq  %rbp, %rsp\n\t"
@@ -160,23 +157,18 @@ static void aatan2(const float y, const float x, float *__restrict__ result) {
 }
 
 static inline void runTest(struct atanArgs *args, float *__restrict__ result) {
+
     args->fun(args->x, args->y, result);
 }
 
 static inline void arctan2Wrapper(const float x, const float y, float *__restrict__ result) {
+
     *result = atan2(x,y);
 }
 
 int main(void) {
 
-    static char *runNames[TIMING_RUNS] = {"aatan2 :: ", "atan2 :: ", "aatan :: "};
-    static union vect v = {-5, -5, 10, 10};
-    static union vect u = {5, 5, 10, 10};
-    static union vect vbar = {-oneOverRootFive, -oneOverRootFive, twoOverRootFive, twoOverRootFive}; // => Sqrt[25 + 100] = 5*sqrt[5]
-    static union vect ubar = {-oneOverRootFive, -oneOverRootFive, twoOverRootFive, twoOverRootFive};
-    static union vect x = {0,0,0,0};
-    static union vect y = {-1, -1, 0, 0};
-
+    static char *runNames[TIMING_RUNS] = {"aatan2 :: ", "atan2 :: "};
     int i, j;
     struct atanArgs args;
     float results[TIMING_RUNS], delta;
@@ -210,66 +202,46 @@ int main(void) {
         }
     }
 
+#ifdef DEBUG
+    static union vect v = {-5, -5, 10, 10};
+    static union vect u = {5, 5, 10, 10};
+    static union vect vbar = {-oneOverRootFive, -oneOverRootFive, twoOverRootFive, twoOverRootFive}; // => Sqrt[25 + 100] = 5*sqrt[5]
+    static union vect ubar = {oneOverRootFive, oneOverRootFive, twoOverRootFive, twoOverRootFive};
+    static union vect x = {0,0,0,0};
+    static union vect y = {-1, -1, 0, 0};
+
     float r = v.arr[0];
     float k = v.arr[3];
     float az = argz(&v.vect);
-
-    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
+    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = u.arr[0];
     k = u.arr[3];
     az = argz(&u.vect);
-    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
+    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = x.arr[0];
     k = x.arr[3];
     az = argz(&x.vect);
-    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
+    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = y.arr[0];
     k = y.arr[3];
     az = argz(&y.vect);
-    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
+    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = vbar.arr[0];
     k = vbar.arr[3];
     az = argz(&vbar.vect);
 
-    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
+    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = ubar.arr[0];
     k = ubar.arr[3];
     az = argz(&ubar.vect);
-    printf("Arg[(%f + %fi)] -> %f\n", r, k, az);
-
+    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+#endif
     printTimedRuns(runNames, TIMING_RUNS);
-
-//    float f = -8.f;
-//    for (i = -100; i < 100; ++i) {
-//
-//        f = i;
-//        float asd = i/32.f;
-//        uint32_t j = *(uint32_t*)&asd;
-//        printf("%f/32 = %f:\t\t"BYTE_TO_BINARY_PATTERN" "
-//        BYTE_TO_BINARY_PATTERN" "
-//        BYTE_TO_BINARY_PATTERN" "
-//        BYTE_TO_BINARY_PATTERN"\n", f, asd,
-//                BYTE_TO_BINARY(j>>24),
-//                BYTE_TO_BINARY(j>>16),
-//                BYTE_TO_BINARY(j>>8),
-//                BYTE_TO_BINARY(j));
-//
-//        j = dividByPow2f(&f, 5);
-//        printf("%f:\t\t\t\t\t\t"BYTE_TO_BINARY_PATTERN" "
-//               BYTE_TO_BINARY_PATTERN" "
-//               BYTE_TO_BINARY_PATTERN" "
-//               BYTE_TO_BINARY_PATTERN"\n", f,
-//               BYTE_TO_BINARY(j>>24),
-//               BYTE_TO_BINARY(j>>16),
-//               BYTE_TO_BINARY(j>>8),
-//               BYTE_TO_BINARY(j));
-//
-//        assert(f == asd);
-//    }
+    
     return 0;
 }
