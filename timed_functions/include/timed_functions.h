@@ -29,7 +29,7 @@
 #include <unistd.h>
 #include <assert.h>
 
-#define NINE_THIRTY_SECONDS 0.28125
+#define NINE_THIRTY_SECONDS 0.28125f
 #define FLOAT_S_FLIP_MASK  0x7FFFFFFFU
 #define FLOAT_E_MASK       0x7F8FFFFFU
 #define FLOAT_S_MASK       0x80000000U
@@ -207,5 +207,16 @@ __asm__ (
 
     "ret"
 #endif
+);
+
+__asm__(
+#ifdef __clang__
+"_isNegZero: "
+#else
+"isNegZero: "
+#endif
+    "movq %xmm0, %rax\n\t"
+    "andl $0x80000000, %eax\n\t"
+    "ret"
 );
 #endif //TIMED_FUNCTIONS_H

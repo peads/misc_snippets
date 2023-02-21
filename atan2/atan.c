@@ -14,11 +14,11 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-#include <emmintrin.h>
+#include <immintrin.h>
 #define TIMING_RUNS 2
 #include "timed_functions.h"
 
-//#define DEBUG
+#define DEBUG
 
 #ifdef DEBUG
     #define PRINTF printf
@@ -50,18 +50,8 @@ static const float twoOverRootFive = 2.f * oneOverRootFive;
 extern float ffabsf(float f);
 
 extern int isNegZero(float f);
-__asm__(
-#ifdef __clang__
-"_isNegZero: "
-#else
-"isNegZero: "
-#endif
-    "movq %xmm0, %rax\n\t"
-    "andl $0x80000000, %eax\n\t"
-    "ret"
-);
 
-extern float argz(__m128 *z);
+extern __m128 argz(__m128 *z);
 __asm__(
 #ifdef __clang__
 "_argz: "
@@ -112,26 +102,51 @@ __asm__(
     "jmp return\n\t"                    // otherwise return Pi
 
 "ynz: "
-    "vdivps %xmm0, %xmm3, %xmm0\n\t"    // y / (Sqrt[...] + x), ...
+//    "vdivps %xmm0, %xmm3, %xmm0\n\t"    // y / (Sqrt[...] + x), ...
     "jmp homestretch\n\t"
 
 "posx: "
-    "vdivps %xmm3, %xmm0, %xmm0\n\t"    // (Sqrt[...] - x) / y, ...
+//    "vdivps %xmm3, %xmm0, %xmm0\n\t"    // (Sqrt[...] - x) / y, ...
     "jmp homestretch\n\t"
 
-"homestretch: "
-    "vextractps $1, %xmm0, %rdx\n\t" // TODO replace this with function call to one that takes a vector
-    "movq %rdx, %xmm0\n\t"
-    "sub $128, %rsp\n\t"
-    "mov %rsp, %rdx\n\t"
-    "call _aatan\n\t"               // TODO replace this with vector ops implementing aatan
-    "mov %rdx, %rsp\n\t"
-    "add $128, %rsp\n\t"
+"homestretch: "                           // xmm3 = y, xmm0 = Sqrt[...] +- c = x
+//    "movss $0x3e900000, %xmm1\n\t"      // 9/32 -> xmm1
+    "vmulps %xmm0, %xmm0, %xmm1\n\t "     // x*x, x*x, x*x, x*x -> xmm1
+    "vmulps %xmm3, %xmm3, %xmm2\n\t"      // same for y -> xmm2
+    "vmulps %xmm3, %xmm0, %xmm0\n\t"       // xy, xy, xy, xy -> xmm0
+    "movl $0x42000000, %edx\n\t"
+    "movq %rdx, %xmm3\n\t"
+    "vbroadcastss %xmm3, %xmm3\n\t"       // 32, 32, 32, 32 -> xmm3
+    "vmulps %xmm3, %xmm0, %xmm0\n\t"      // 32xy, ... -> xmm0
+    // _MM_SHUFFLE(3,2,3,2) => (3 << 6) | (2 << 4) | (3 << 2) | 2 = 11 << 6 = 1100 0000,
+    // 10 << 4 = 0010 0000, 11 << 2 = 0000 1100, 0000 0010 => 11101110 = EE, 01110111 = 77
+    "movl $0x41100000, %edx\n\t"
+    "movq %rdx, %xmm4\n\t"
+    "vbroadcastss %xmm4, %xmm4\n\t"       // 9, 9, 9, 9 -> xmm4
+    "vshufps $0xEE, %xmm4, %xmm3, %xmm3\n\t"      // 32, 9, 32, 9 -> xmm3
+    "vmulps %xmm3, %xmm1, %xmm1\n\t"      // 32xx, 9xx, ... -> xmm1
+    "vmulps %xmm3, %xmm2, %xmm2\n\t"      // 32yy, 9yy, ... -> xmm2
+    // _MM_SHUFFLE(3,2,1,0) = 00010111 = 1E, 1110 0100 = E4
+    "vpermilps $0xE4, %xmm2, %xmm2\n\t"   // 9yy, 32yy, ... -> xmm2
+    "vaddps %xmm2, %xmm1, %xmm1\n\t"      // 32xx + 9yy, 32yy + 9xx, ... -> xmm1
+    "vdivps %xmm0, %xmm1, %xmm0\n\t"      // 32xy/(32xx + 9yy), 32xy/(32yy + 9xx), ... -> xmm0
+//    "vextractps $0, %xmm0, %rdx\n\t"
+//    "movq %rdx, %xmm0\n\t"
 
-    "movq $0x40000000, %rdx\n\t" // TODO replace this with vector multiply
+
+//    "vextractps $1, %xmm0, %rdx\n\t" // TODO replace this with function call to one that takes a vector
+//    "movq %rdx, %xmm0\n\t"
+//    "sub $128, %rsp\n\t"
+//    "mov %rsp, %rdx\n\t"
+//    "call _aatan\n\t"               // TODO replace this with vector ops implementing aatan
+//    "mov %rdx, %rsp\n\t"
+//    "add $128, %rsp\n\t"
+
+//    "movq $0x40000000, %rdx\n\t" // TODO replace this with vector multiply
+//    "movss $0x40000000, %xmm1\n\t"
     //0x7FFEEA0FF930 all packed 2.fs?
-    "vmovq %rdx, %xmm1\n\t"
-    "mulss %xmm1, %xmm0\n\t"
+//    "vmovq %rdx, %xmm1\n\t"
+//    "mulss %xmm1, %xmm0\n\t"
 
 "return: "
     "movq  %rbp, %rsp\n\t"
@@ -173,9 +188,7 @@ int main(void) {
     struct atanArgs args;
     float results[TIMING_RUNS], delta;
 
-    for (i = j = MIN; i < MAX; j += STEP) {
-        args.x = i;
-        args.y = j;
+    for (i = j = MAX; i < MAX; j += STEP) {
 
         // z_norm = (x + iy) / ||(x + iy)|| =  (x + iy) / Sqrt[x^2 + y^2]
         float norm = sqrtf(i * i + j * j);
@@ -212,34 +225,40 @@ int main(void) {
 
     float r = v.arr[0];
     float k = v.arr[3];
-    float az = argz(&v.vect);
-    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+//    float az = argz(&v.vect);
+    __m128 az = argz(&u.vect);
+    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+//    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = u.arr[0];
     k = u.arr[3];
     az = argz(&u.vect);
-    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+//    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = x.arr[0];
     k = x.arr[3];
     az = argz(&x.vect);
-    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+//    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = y.arr[0];
     k = y.arr[3];
     az = argz(&y.vect);
-    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+//    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = vbar.arr[0];
     k = vbar.arr[3];
     az = argz(&vbar.vect);
-
-    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+//    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = ubar.arr[0];
     k = ubar.arr[3];
     az = argz(&ubar.vect);
-    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+//    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 #endif
     printTimedRuns(runNames, TIMING_RUNS);
     

@@ -14,11 +14,8 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
-#include <stdio.h>
-#include <assert.h>
 #include <immintrin.h>
-#include <emmintrin.h>
-#include <math.h>
+//#include <emmintrin.h>
 #define TIMING_RUNS 4
 #include "timed_functions.h"
 #define MAX_ERROR 1e-6
@@ -35,18 +32,6 @@
 #endif
 
 extern float ffabsf(float f);
-
-extern int isNegZero(float f);
-__asm__(
-#ifdef __APPLE_CC__
-"_isNegZero: "
-#else
-"isNegZero: "
-#endif
-    "movq %xmm0, %rax\n\t"
-    "andl $0x80000000, %eax\n\t"
-    "ret"
-);
 
 extern float asmArgz_ps(__m128 *z0, __m128 *z1);
 __asm__(
