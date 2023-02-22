@@ -34,6 +34,7 @@
 
 union vect {
     float arr[4] __attribute__((aligned(16)));
+    uint64_t l;
     __m128 vect;
 };
 
@@ -48,8 +49,30 @@ static const float oneOverRootFive = 0.44721359549995793928183473374625524708812
 static const float twoOverRootFive = 2.f * oneOverRootFive;
 
 extern float ffabsf(float f);
-
 extern int isNegZero(float f);
+extern float fsqrtf(float x);
+
+float aacos(float x) {
+
+    int negate = signum(x);
+    x = fabs(x);
+
+    float result = -0.0187293;
+    result *= x;
+    result += 0.0742610;
+    result *= x;
+    result -= 0.2121144;
+    result *= x;
+    result += M_PI_2;
+    result *= fsqrtf(1.f - x);
+    result -= 2 * negate * result;
+    return negate * M_PI + result;
+}
+
+float aatan3(float x) {
+
+    return aacos(2*x / (1+x*x));
+}
 
 extern __m128 argz(__m128 *z);
 __asm__(
@@ -82,11 +105,12 @@ __asm__(
     "vmulps %xmm0, %xmm0, %xmm0\n\t"    // x*x, x*x, y*y, y*y
     "vpermilps $0x1B, %xmm0, %xmm1\n\t"
     "vaddps %xmm1, %xmm0, %xmm0\n\t"    // x*x + y*y, ...
-    "vmovaps %xmm0, %xmm4\n\t"
-    "vsqrtps %xmm0, %xmm0\n\t"          // Sqrt[x*x + y*y], ...
-    "vdivps %xmm0, %xmm4, %xmm0\n\t"    // Norm the vector
-    "vaddsubps %xmm2, %xmm0, %xmm0\n\t" // Sqrt[...] +- x alternately, avoids an extra instruction
-    "vmovaps %xmm0, (%rdi)\n\t"         // store in return argument
+//    "vmovaps %xmm1, %xmm4\n\t"
+    "vsqrtps %xmm1, %xmm1\n\t"          // Sqrt[x*x + y*y], ...
+    "vdivps %xmm1, %xmm0, %xmm0\n\t"
+    "vdivps %xmm1, %xmm2, %xmm2\n\t"
+    "vaddsubps %xmm2, %xmm1, %xmm0\n\t" // Sqrt[...] +- x alternately, avoids an extra instruction
+    "vmovaps %xmm1, (%rdi)\n\t"         // store in return argument
 
     "vxorps %xmm1, %xmm1, %xmm1\n\t"
     "vcmpless %xmm1, %xmm2, %xmm1\n\t"
@@ -102,51 +126,48 @@ __asm__(
     "jmp return\n\t"                    // otherwise return Pi
 
 "ynz: "
-//    "vdivps %xmm0, %xmm3, %xmm0\n\t"    // y / (Sqrt[...] + x), ...
+    "vdivps %xmm0, %xmm3, %xmm0\n\t"    // y / (Sqrt[...] + x), ...
     "jmp homestretch\n\t"
 
 "posx: "
-//    "vdivps %xmm3, %xmm0, %xmm0\n\t"    // (Sqrt[...] - x) / y, ...
+    "vdivps %xmm3, %xmm0, %xmm0\n\t"    // (Sqrt[...] - x) / y, ...
     "jmp homestretch\n\t"
 
-"homestretch: "                           // xmm3 = y, xmm0 = Sqrt[...] +- c = x
-//    "movss $0x3e900000, %xmm1\n\t"      // 9/32 -> xmm1
-    "vmulps %xmm0, %xmm0, %xmm1\n\t "     // x*x, x*x, x*x, x*x -> xmm1
-    "vmulps %xmm3, %xmm3, %xmm2\n\t"      // same for y -> xmm2
-    "vmulps %xmm3, %xmm0, %xmm0\n\t"       // xy, xy, xy, xy -> xmm0
-    "movl $0x42000000, %edx\n\t"
-    "movq %rdx, %xmm3\n\t"
-    "vbroadcastss %xmm3, %xmm3\n\t"       // 32, 32, 32, 32 -> xmm3
-    "vmulps %xmm3, %xmm0, %xmm0\n\t"      // 32xy, ... -> xmm0
-    // _MM_SHUFFLE(3,2,3,2) => (3 << 6) | (2 << 4) | (3 << 2) | 2 = 11 << 6 = 1100 0000,
-    // 10 << 4 = 0010 0000, 11 << 2 = 0000 1100, 0000 0010 => 11101110 = EE, 01110111 = 77
-    "movl $0x41100000, %edx\n\t"
-    "movq %rdx, %xmm4\n\t"
-    "vbroadcastss %xmm4, %xmm4\n\t"       // 9, 9, 9, 9 -> xmm4
-    "vshufps $0xEE, %xmm4, %xmm3, %xmm3\n\t"      // 32, 9, 32, 9 -> xmm3
-    "vmulps %xmm3, %xmm1, %xmm1\n\t"      // 32xx, 9xx, ... -> xmm1
-    "vmulps %xmm3, %xmm2, %xmm2\n\t"      // 32yy, 9yy, ... -> xmm2
-    // _MM_SHUFFLE(3,2,1,0) = 00010111 = 1E, 1110 0100 = E4
-    "vpermilps $0xE4, %xmm2, %xmm2\n\t"   // 9yy, 32yy, ... -> xmm2
-    "vaddps %xmm2, %xmm1, %xmm1\n\t"      // 32xx + 9yy, 32yy + 9xx, ... -> xmm1
-    "vdivps %xmm0, %xmm1, %xmm0\n\t"      // 32xy/(32xx + 9yy), 32xy/(32yy + 9xx), ... -> xmm0
-//    "vextractps $0, %xmm0, %rdx\n\t"
-//    "movq %rdx, %xmm0\n\t"
+"homestretch: "
+/* Approx via Pi/4 */
+//    "movl $0x3f490fdb, %edx\n"
+//    "vmovq %rdx, %xmm2\n\t"
+//    "vbroadcastss %xmm2, %xmm2\n\t"
+//    "vmulps %xmm2, %xmm0, %xmm0\n\t"
 
+/* Approximate via
+ * https://www-labs.iro.umontreal.ca/~mignotte/IFT2425/Documents/EfficientApproximationArctgFunction.pdf (11) */
+    "movq $0x42000000, %rdx\n\t"
+    "vmovq %rdx, %xmm2\n\t"
+    "vbroadcastss %xmm2, %xmm2\n\t"         // 32, 32, 32, 32 -> xmm2
+    "movq $0x41100000, %rdx\n\t"
+    "vmovq %rdx, %xmm3\n\t"
+    "vbroadcastss %xmm3, %xmm3\n\t"         // 9, 9, 9, 9 -> xmm3
+    "vmulps %xmm0, %xmm0, %xmm1\n\t "       // x*x, x*x, x*x, x*x -> xmm1
+    "vmulps %xmm3, %xmm1, %xmm1\n\t"        // 9xx ,.. -> xmm1
+    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // 9xx + 32, ... -> xmm1
+    "vmulps %xmm2, %xmm0, %xmm0\n\t"        // 32x, ... -> xmm0
+    "vdivps %xmm1, %xmm0, %xmm0\n\t"        // 32x/(9xx + 32), ... -> xmm0
 
+/* Cheat */
 //    "vextractps $1, %xmm0, %rdx\n\t" // TODO replace this with function call to one that takes a vector
+//    "xorps %xmm0, %xmm0\n\t"
 //    "movq %rdx, %xmm0\n\t"
 //    "sub $128, %rsp\n\t"
 //    "mov %rsp, %rdx\n\t"
 //    "call _aatan\n\t"               // TODO replace this with vector ops implementing aatan
 //    "mov %rdx, %rsp\n\t"
 //    "add $128, %rsp\n\t"
-
-//    "movq $0x40000000, %rdx\n\t" // TODO replace this with vector multiply
-//    "movss $0x40000000, %xmm1\n\t"
-    //0x7FFEEA0FF930 all packed 2.fs?
-//    "vmovq %rdx, %xmm1\n\t"
-//    "mulss %xmm1, %xmm0\n\t"
+//
+    "movq $0x40000000, %rdx\n\t"
+    "vmovq %rdx, %xmm1\n\t"
+    "vbroadcastss %xmm1, %xmm1\n\t"
+    "mulps %xmm1, %xmm0\n\t"
 
 "return: "
     "movq  %rbp, %rsp\n\t"
@@ -222,43 +243,69 @@ int main(void) {
     static union vect ubar = {oneOverRootFive, oneOverRootFive, twoOverRootFive, twoOverRootFive};
     static union vect x = {0,0,0,0};
     static union vect y = {-1, -1, 0, 0};
+    static union vect w;
 
     float r = v.arr[0];
     float k = v.arr[3];
+    __m128 az;
 //    float az = argz(&v.vect);
-    __m128 az = argz(&u.vect);
-    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
-//    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+//    w = (union vect){.vect = az};
+//    printf("%f %f %f %f\n", w.arr[0], w.arr[1], w.arr[2],  w.arr[3]);
+////    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+
+    r = v.arr[0];
+    k = v.arr[3];
+    az = argz(&vbar.vect);
+//    w = (union vect){{1,2,3,4}};
+//    union vect p = (union vect){5,6,7,8};
+//    w.vect = _mm_shuffle_ps(w.vect, p.vect, _MM_SHUFFLE(0,1,2,3));
+    w = (union vect){.vect = az};
+    float f;
+    aatan2(k, r, &f);
+    printf("Arg[(%f + %fi)] -> %f %f %f %f :: %f, %f\n",r, k, w.arr[0], w.arr[1], w.arr[2],  w.arr[3], atan2f(k, r), f);
 
     r = u.arr[0];
     k = u.arr[3];
     az = argz(&u.vect);
-    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+    w = (union vect){.vect = az};
+    aatan2(k, r, &f);
+    printf("Arg[(%f + %fi)] -> %f %f %f %f :: %f, %f\n",r, k, w.arr[0], w.arr[1], w.arr[2],  w.arr[3], atan2f(k, r), f);
 //    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = x.arr[0];
     k = x.arr[3];
     az = argz(&x.vect);
-    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+    w = (union vect){.vect = az};
+    aatan2(k, r, &f);
+    printf("Arg[(%f + %fi)] -> %f %f %f %f :: %f, %f\n",r, k, w.arr[0], w.arr[1], w.arr[2],  w.arr[3], atan2f(k, r), f);
 //    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = y.arr[0];
     k = y.arr[3];
     az = argz(&y.vect);
-    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+    w = (union vect){.vect = az};
+    aatan2(k, r, &f);
+    printf("Arg[(%f + %fi)] -> %f %f %f %f :: %f, %f\n",r, k, w.arr[0], w.arr[1], w.arr[2],  w.arr[3], atan2f(k, r), f);
 //    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = vbar.arr[0];
     k = vbar.arr[3];
     az = argz(&vbar.vect);
-    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+    w = (union vect){.vect = az};
+    aatan2(k, r, &f);
+    printf("Arg[(%f + %fi)] -> %f %f %f %f :: %f, %f\n",r, k, w.arr[0], w.arr[1], w.arr[2],  w.arr[3], atan2f(k, r), f);
 //    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
 
     r = ubar.arr[0];
     k = ubar.arr[3];
     az = argz(&ubar.vect);
-    printf("%f %f %f %f\n", _mm_extract_ps(az, 0),  _mm_extract_ps(az, 1),  _mm_extract_ps(az, 2),  _mm_extract_ps(az, 3));
+    w = (union vect){.vect = az};
+    aatan2(k, r, &f);
+    printf("Arg[(%f + %fi)] -> %f %f %f %f :: %f, %f\n",r, k, w.arr[0], w.arr[1], w.arr[2],  w.arr[3], atan2f(k, r), f);
 //    printf("Arg[(%f + %fi)] -> %f vs %f\n", r, k, az, atan2f(k, r));
+
+    printf("%X %X %X %X\n", _MM_SHUFFLE(2,1,2,1), _MM_SHUFFLE(1,2,1,2), _MM_SHUFFLE(3,1,2,0),
+           _MM_SHUFFLE(3,2,1,0));
 #endif
     printTimedRuns(runNames, TIMING_RUNS);
     
