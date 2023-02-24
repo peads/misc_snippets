@@ -19,8 +19,13 @@
 #include <time.h>
 #include <stdlib.h>
 #include <math.h>
-#define TIMING_RUNS 2
+#define TIMING_RUNS 3
 #include "timed_functions.h"
+
+#define MAX_ERROR 10e-5
+#define MIN 0
+#define MAX 20
+#define STEP 0.001
 
 #if defined(__x86_64__) || defined(_M_X64)
 ///return "x86_64";
@@ -29,26 +34,32 @@
 //return "x86_32";
 #define X86
 #endif
+extern float ffabsf(float x);
 
-void invSqrt(float *x) {
+float invSqrt(float x) {
 
-    float xhalf = 0.5f * *x;
-    int i = *(int*)x;            // store floating-point bits in integer
+    if (x <= 0.f){
+        return 0.f;
+    }
+
+    uint32_t i = *(uint32_t *) &x;            // store floating-point bits in integer
+    float xhalf = 0.5f * x;
     i = 0x5f3759df - (i >> 1);    // initial guess for Newton's method
-    *x = *(float*)&i;              // convert new bits into float
-    *x = *x*(1.5f - xhalf**x**x);     // One round of Newton's method
+    x = *(float *) &i;              // convert new bits into float
+
+    return x*(1.5f - xhalf * x * x);     // One round of Newton's method
 }
 
-void asmInvSqrt(float *result) {
 
-    const float half = 0.5f;
-    const float threeHavles = 1.5f;
-
-    float x = *result;
-
-    __asm__ __volatile__(
+extern float asmInvSqrt(float x);
+__asm__(
+#ifdef __clang__
+"_asmInvSqrt: "
+#else
+"asmInvSqrB: "
+#endif
 #ifndef X86
-        "ldr r1, %0\n\t"
+    "ldr r1, %0\n\t"
 
         "vmov s2, r1\n\t"
         "vldr s1, %1\n\t"
@@ -70,56 +81,130 @@ void asmInvSqrt(float *result) {
         "str r1, %0\n\t"
     //return sqrtf(x);
 #else
-        "flds %0\n\t"
-        "flds %1\n\t"
-        "fmulp\n\t"
+    "xorps %xmm1, %xmm1\n\t"
+    "vucomiss %xmm0, %xmm1\n\t"
+    "jae return\n\t"
 
-        "movl %0, %%edx\n\t" 
-        "movl %%edx, %3\n\t"
-        "sarl $1, %%edx\n\t"        
-        "movl $0x5f375a85, %%eax\n\t"
-        "subl %%edx, %%eax\n\t"
-        "movl %%eax, %0\n\t"        //0x5f3759df - x
+    "movq %xmm0, %rax\n\t"
+    "movl $0xBf000000, %edx\n\t"
+    "pushq %rax\n\t"
+    "pushq %rdx\n\t"
+    "flds (%rsp)\n\t"
+    "pop %rdx\n\t"
+    "flds (%rsp)\n\t"
+    "fmulp\n\t"
+    "pop %rdx\n\t"
 
-        "flds %0\n\t"
-        "flds %0\n\t"
-        "fmulp\n\t"
-        "fmulp\n\t"         // x^2
-        "fchs\n\t"
-        "flds %2\n\t"
-        "faddp\n\t"
-        "flds %0\n\t"
-        "fmulp\n\t"
-        "fstps %0\n\t"
+    "sarl $1, %eax\n\t"
+    "negl %eax\n\t"
+    "movl $0x5f375a85, %edx\n\t"
+    "addl %edx, %eax\n\t"           // x = magic_number - *(uint32*)&x
+
+    "movl $0x3fc00000, %edx\n\t"
+    "pushq %rax\n\t"
+    "flds (%rsp)\n\t"
+    "flds (%rsp)\n\t"
+    "fmulp\n\t"         // x^2
+    "fmulp\n\t"         // x^2 * x0/2
+    "pushq %rdx\n\t"
+    "flds (%rsp)\n\t"
+    "faddp\n\t"         // (1.5 -(x^2 * x0/2))
+    "popq %rdx\n\t"
+    "flds (%rsp)\n\t"
+    "fmulp\n\t"         // x*(1.5 -(x^2 * x0/2))
+    "fstps (%rsp)\n\t"
+    "pop %rax\n\t"
+    "movq %rax, %xmm0\n\t"
+
+    "ret"
 #endif
-        : "+m" (x)
-        : "m" (half), "m" (threeHavles)
-        : "memory"
-    );
+);
 
-    *result = x;
-}
+extern float asmInvSqrtB(float x);
+__asm__(
+#ifdef __clang__
+"_asmInvSqrtB: "
+#else
+"asmInvSqrtB: "
+#endif
+    "xorps %xmm1, %xmm1\n\t"
+    "vucomiss %xmm0, %xmm1\n\t"
+    "jae return\n\t"
+
+    "movq %xmm0, %rax\n\t"// load x0
+    "movl $0xBf000000, %edx\n\t"
+    "movq %rdx, %xmm1\n\t"           // -1/2 -> xmm1
+    "mulss %xmm0, %xmm1\n\t" // -x0/2 -> xmm1
+
+    "shrl $1, %eax\n\t"
+    "negl %eax\n\t"
+    "addl $0x5f3759df, %eax\n\t"
+    "movq %rax, %xmm0\n\t"           // x = 0x5f3759df - (x0 >> 1) -> xmm1
+
+    "vmulps %xmm0, %xmm0, %xmm2\n\t" // x*x -> xmm2
+    "mulss %xmm2, %xmm1\n\t" //-x0/2x * x*x -> xmm1
+    "movl $0x3fc00000, %eax\n\t"
+    "movq %rax, %xmm2\n\t"           // 3/2 -> xmm2
+    "addss %xmm2, %xmm1\n\t" // 3/2 - x0/2 * x*x
+    "mulss %xmm1, %xmm0\n\t" // x*(3/2 - x/2 * x*x)
+
+"return: "
+    "ret"
+);
+
+extern float fsqrtf(float f);
 
 int main(void) {
 
-    float f = 1.0f;
-    uint64_t cnt;
-    long double d = 0.;
+    float a, b, c, f;
+    uint64_t n;
+    long double deltas[2], d = 0.l;
+    struct timespec tstart, tend;
 
-    for (cnt = 0; cnt < (1<<25); cnt++, f+=0.0001f){
 
-        float a, b;
-        a = b = f;
-        timeFun((timedFun) invSqrt, &a, NULL, 0);
-        timeFun((timedFun) asmInvSqrt, &b, NULL, 1);
-        //printf("sqrt[%f] = %f %f\n", f, a, b);
-        d += fabsf(fabsf(a) - fabsf(b));
+    for (f = MIN; f < MAX; f+=STEP, ++n) {
+        // START_TIMED
+        clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+        a = invSqrt(f);
+
+        clock_gettime(CLOCK_MONOTONIC, &tend);
+        findDeltaTime(0, &tstart, &tend);
+        // END TIMED
+
+        // START_TIMED
+        clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+        b = asmInvSqrt(f);
+
+        clock_gettime(CLOCK_MONOTONIC, &tend);
+        findDeltaTime(1, &tstart, &tend);
+        // END TIMED
+
+        // START_TIMED
+        clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+        c = asmInvSqrtB(f);
+
+        clock_gettime(CLOCK_MONOTONIC, &tend);
+        findDeltaTime(2, &tstart, &tend);
+        // END TIMED
+
+        printf("Sqrt[%f] = %f, %f, %f, %f\n", f, 1/fsqrtf(f), a, b, c);
+
+        deltas[0] = (long double) ffabsf(ffabsf(a) - ffabsf(b));
+        assert(deltas[0] < MAX_ERROR);
+
+        deltas[1] = (long double) ffabsf(ffabsf(a) - ffabsf(c));
+        assert(deltas[1] < MAX_ERROR);
+
+        d += deltas[0] + deltas[1];
     }
-    char *runNames[2]
-            = {"carmack :: ", "asm :: "};
+    char *runNames[3]
+            = {"carmack :: ", "asmInvSqrt :: ", "asmInvSqrtB :: "};
 
     printTimedRuns(runNames, TIMING_RUNS);
-    d /= (long double) cnt;
+    d /= n;
     printf("\navg delta: %Le\n", d);
     return 0;
 }

@@ -20,7 +20,9 @@
 #include <immintrin.h>
 //#include <emmintrin.h>
 #define TIMING_RUNS 5
+
 #include "timed_functions.h"
+
 #define MAX_ERROR 1e-6
 #define MIN -20
 #define MAX 20
@@ -77,10 +79,10 @@ __asm__(
  * (ar + iaj) * (br + ibj), * s.t. z = {ar, aj, br, bj}
  * and return their argument.
  **/
-extern float argzB(float ar ,
-                   float aj ,
-                   float br ,
-                   float bj );
+extern float argzB(float ar,
+                   float aj,
+                   float br,
+                   float bj);
 __asm__(
 #ifdef __clang__
 "_argzB: "
@@ -118,6 +120,7 @@ __asm__(
     "add $32, %rsp \n\t"
     "ret"
 );
+
 extern void conjz(__m128 *z);
 __asm__ (
 #ifdef __APPLE_CC__
@@ -136,34 +139,36 @@ __asm__ (
 
 void conjz_ps(__m128 *z) {
 
-    union vect T = {-1, -1, -1, -1};
+union vect T = {-1, -1, -1, -1};
     *z = _mm_mul_ps(*z, T.vect);
-//    *z = _mm_permute_ps(*z, _MM_SHUFFLE(3,2,1,0));
+    //    *z = _mm_permute_ps(*z, _MM_SHUFFLE(3,2,1,0));
 }
 
-float argz_ps(__m128 *z0, __m128 *z1){// z0 = (ar, aj), z1 = (br, bj) => z0*z1 = (ar*br - aj*bj, ar*bj + br*aj)
+float argz_ps(__m128 *z0,
+              __m128 *z1) {// z0 = (ar, aj), z1 = (br, bj) => z0*z1 = (ar*br - aj*bj, ar*bj + br*aj)
 
     *z0 = _mm_mul_ps(*z0, *z1);                // => ar*br, aj*bj, ar*bj, br*aj
-    *z1 = _mm_permute_ps(*z0, _MM_SHUFFLE(2,3,0,1));
+    *z1 = _mm_permute_ps(*z0, _MM_SHUFFLE(2, 3, 0, 1));
     *z0 = _mm_addsub_ps(*z1, *z0);
-    *z0 = _mm_permute_ps(*z0, _MM_SHUFFLE(3,3,0,0));
+    *z0 = _mm_permute_ps(*z0, _MM_SHUFFLE(3, 3, 0, 0));
 
     long temp = _mm_extract_ps(*z0, 3);
-    const float y = *(float*)&temp;
+    const float y = *(float *) &temp;
     temp = _mm_extract_ps(*z0, 0);
-    const float x = *(float*)&temp;
+    const float x = *(float *) &temp;
 
     return atan2f(x, y);
 }
 
-int main(void){
-    static char *runNames[TIMING_RUNS]
-    = {"argz :: ", "argz_ps :: ","conjz :: ", "conjz_ps :: ", "argzB :: "};
+int main(void) {
 
-    float ar ;
-    float aj ;
-    float br ;
-    float bj ;
+    static char *runNames[TIMING_RUNS]
+            = {"argz :: ", "argz_ps :: ", "conjz :: ", "conjz_ps :: ", "argzB :: "};
+
+    float ar;
+    float aj;
+    float br;
+    float bj;
     float true;
 
     float deltaArg, deltaR, deltaJ, deltaConjR, deltaConjJ;
@@ -172,15 +177,15 @@ int main(void){
     uint64_t n = 0;
     int i;
 
-    for (ar = MIN; ar < MAX; ++ar)
-        for (aj = MIN; aj < MAX; ++aj)
-            for (br = MIN; br < MAX; ++br)
-                for (bj = MIN; bj < MAX; ++bj, ++n){
-                    union vect u = { aj,ar,aj,ar };
-                    union vect v = { bj,br,br,bj };
+    for (ar = MIN; ar < MAX; ar+=STEP) {
+        for (aj = MIN; aj < MAX; aj += STEP) {
+            for (br = MIN; br < MAX; br += STEP) {
+                for (bj = MIN; bj < MAX; bj += STEP, ++n) {
+                    union vect u = {aj, ar, aj, ar};
+                    union vect v = {bj, br, br, bj};
 
-                    union vect u1 = { aj,ar,aj,ar };
-                    union vect v1 = { bj,br,br,bj };
+                    union vect u1 = {aj, ar, aj, ar};
+                    union vect v1 = {bj, br, br, bj};
 
                     // START_TIMED
                     clock_gettime(CLOCK_MONOTONIC, &tstart);
@@ -233,7 +238,7 @@ int main(void){
                     // START_TIMED
                     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-                    arg[2] = argzB(ar,aj,br,bj);
+                    arg[2] = argzB(ar, aj, br, bj);
 
                     clock_gettime(CLOCK_MONOTONIC, &tend);
                     findDeltaTime(4, &tstart, &tend);
@@ -258,6 +263,9 @@ int main(void){
                     assert(deltaConjR < MAX_ERROR);
                     assert(deltaConjJ < MAX_ERROR);
                 }
+            }
+        }
+    }
 
     printTimedRuns(runNames, TIMING_RUNS);
     printf("Iterations: %ld\n", n);
