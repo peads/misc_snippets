@@ -56,7 +56,7 @@ __asm__(
 #ifdef __clang__
 "_asmInvSqrt: "
 #else
-"asmInvSqrB: "
+"asmInvSqrt: "
 #endif
 #ifndef X86
     "ldr r1, %0\n\t"
