@@ -58,7 +58,7 @@ __asm__(
     "flds       (%rsp)                  \n\t"
     "fpatan                             \n\t"
     "fstps      (%rsp)                  \n\t"
-    // B I G pop emulation
+    // B I G pop
     "vmovq    (%rsp), %xmm0             \n\t"
     "add        $32,    %rsp            \n\t"
     "ret"
@@ -114,8 +114,9 @@ int main(void){
     struct timespec tstart, tend;
     uint64_t n = 0;
 
-    union vect x = { 2,1,2,1 };
-    union vect y = {4, 3, 3, 4};
+    union vect x = { 2,1,2,1 };         // aj, ar, aj ,ar
+    union vect y = {4, 3, 3, 4};        // bj, br, br, bj
+                                                                   // aj*br, ar*br, aj*bj, ar*br
     asmArgz_ps(&x.vect, &y.vect);
 
     for (ar = MIN; ar < MAX; ++ar)

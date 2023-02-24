@@ -15,6 +15,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <string.h>
 #include "timed_functions.h"
 
 static inline void timespec_diff(const struct timespec *a, const struct timespec *b,
@@ -185,14 +186,30 @@ double sqrtApprox(const double z) {
     return un.f;        /* Interpret again as float */
 }
 
-float aatan(const float z) {
+extern float ffabsf(float x);
+inline float aatan(const float z) {
+    // x / (1 + 9/32*x^2) == x / (1 + x^2/4 + x^2/32) == 32 x / (9x^2 + 32)
+//    return z / (1 + NINE_THIRTY_SECONDS * z * z);
+    const float zz = z*z;
+#ifdef DEBUG
+    float tmp = z / (1 + dividByPow2f(zz, 2) + dividByPow2f(zz, 5));
+//    float tmp = dividByPow2f(z , -5) / (9*z*z + 32);
+    float temp = z / (1 + NINE_THIRTY_SECONDS * z * z);
 
-    return z / (1 + NINE_THIRTY_SECONDS * z * z);
+    double delta = fabs((double) tmp) - fabs((double) temp);
+
+    if (delta >= 10e-7) {
+        fprintf(stderr, "%f - %f = %f\n", tmp, temp, delta);
+    }
+    return tmp;
+#else
+    return z / (1 + dividByPow2f(zz, 2) + dividByPow2f(zz, 5));
+#endif
 }
 
-uint32_t dividByPow2f(float *x, int16_t n) {
+float dividByPow2f(float x, int16_t n) {
 
-    union unFloat unf = {*x};
+    union unFloat unf = {x};
 
     uint32_t sign = unf.i & FLOAT_S_MASK;
     uint32_t e = unf.i & FLOAT_E_MASK;
@@ -211,15 +228,14 @@ uint32_t dividByPow2f(float *x, int16_t n) {
 //            rb = m & 1U;
             m >>= 1;
 //            if (rb) {
-                // do somehting on sticky bit?
+                // do somehting with sticky bit?
 //            }
         }
         e <<= FLOAT_SHIFT;
         unf.i = sign | e | m;
     }
 
-    *x = *(float *) &unf.i;
-    return unf.i;
+    return unf.f;
 }
 
 uint64_t dividByPow2(double *x, int16_t n) {
@@ -247,4 +263,78 @@ uint64_t dividByPow2(double *x, int16_t n) {
 
     *x = *(float *) &unf.i;
     return unf.i;
+}
+
+void aatan2(const float y, const float x, float *__restrict__ result) {
+
+    if (x == 0.f && y == 0.f) {
+        *result = NAN;
+    }
+
+    if (0.0f == x) {
+        *result =  y > 0.0f ? M_PI_2 : -M_PI_2;
+    } else {
+        if (ffabsf(x) > ffabsf(y)) {
+            *result =  x > 0.f ? aatan(y / x) : y >= 0.f ? aatan(y / x) + M_PI : aatan(y / x) - M_PI;
+        } else {
+            *result =  y > 0.f ? -aatan(x / y) + M_PI_2 : -aatan(x / y) - M_PI_2;
+        }
+    }
+}
+
+float aatanTwo(float y, float x) {
+
+    float t0, t1, t2, t3, t4;
+
+    t3 = ffabsf(x);
+    t1 = ffabsf(y);
+
+//    t0 = max(t3, t1);
+//    t1 = min(t3, t1);
+
+    if (t3 > t1) {
+        t0 = t3;
+        t1 = t1;
+    } else {
+        t0 = t1;
+        t1 = t3;
+    }
+
+    t3 = 1.f / t0;
+    t3 = t1 * t3;
+
+    t4 = t3 * t3;
+
+    t0 =         - 0.013480470F;
+    t0 = t0 * t4 + 0.057477314F;
+    t0 = t0 * t4 - 0.121239071F;
+    t0 = t0 * t4 + 0.195635925F;
+    t0 = t0 * t4 - 0.332994597F;
+    t0 = t0 * t4 + 0.999995630F;
+
+    t3 = t0 * t3;
+
+    t3 = (ffabsf(y) > ffabsf(x)) ? 1.570796327F - t3 : t3;
+    t3 = (x < 0) ?  3.141592654F - t3 : t3;
+    t3 = (y < 0) ? -t3 : t3;
+
+    return t3;
+}
+
+void flipAbsMaxMin(float *g, float *f) {
+    float x = fabsf(*g);
+    float y = fabsf(*f);
+    float temp;
+
+    if (x <= y) {
+        temp = x;
+        x = y;
+        y = temp;
+//        *((uint32_t *) &x) ^= *((uint32_t *) &y);
+//        *((uint32_t *) &y) ^= *((uint32_t *) &x);
+//        *((uint32_t *) &x) ^= *((uint32_t *) &y);
+    }
+
+    *g = x;
+    *f = y;
 }

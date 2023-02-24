@@ -14,11 +14,12 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
+
+#include <string.h>
 #include <immintrin.h>
 #define TIMING_RUNS 2
-#include "timed_functions.h"
-
 #define DEBUG
+#include "timed_functions.h"
 
 #ifdef DEBUG
     #define PRINTF printf
@@ -34,7 +35,7 @@
 
 union vect {
     float arr[4] __attribute__((aligned(16)));
-    uint64_t l;
+    uint64_t i64[2] __attribute__((aligned(16)));
     __m128 vect;
 };
 
@@ -48,33 +49,101 @@ struct atanArgs {
 static const float oneOverRootFive = 0.4472135954999579392818347337462552470881236719223051448541f;
 static const float twoOverRootFive = 2.f * oneOverRootFive;
 
-extern float ffabsf(float f);
-extern int isNegZero(float f);
-extern float fsqrtf(float x);
+extern float __attribute__((aligned(16))) ffabsf(float f __attribute__((aligned(16))));
+extern int __attribute__((aligned(16))) isNegZero(float f __attribute__((aligned(16))));
+extern float __attribute__((aligned(16))) fsqrtf(float x __attribute__((aligned(16))));
+extern void absMaxMin(float *x __attribute__((aligned(16))), float * y __attribute__((aligned(16))));
 
-float aacos(float x) {
+/*
+ * k[ar_, aj_, br_, bj_] :=
+  Piecewise[{
+    {ArcCos[(ar*br - aj*bj)/(Sqrt[ar^2 + aj^2]*Sqrt[br^2 + bj^2])],
+     		ar*br - aj*bj > 0 && ar*bj + br*aj > 0},
 
-    int negate = signum(x);
-    x = fabs(x);
+    {-ArcCos[(ar*br - aj*bj)/(Sqrt[ar^2 + aj^2]*Sqrt[br^2 + bj^2])],
+     		ar*br - aj*bj > 0 && ar*bj + br*aj < 0},
 
-    float result = -0.0187293;
-    result *= x;
-    result += 0.0742610;
-    result *= x;
-    result -= 0.2121144;
-    result *= x;
-    result += M_PI_2;
-    result *= fsqrtf(1.f - x);
-    result -= 2 * negate * result;
-    return negate * M_PI + result;
-}
+    {-ArcCos[(ar*br - aj*bj)/(Sqrt[ar^2 + aj^2]*Sqrt[br^2 + bj^2])] ,
+     		ar*br - aj*bj < 0 && ar*bj + br*aj < 0},
 
-float aatan3(float x) {
+    {ArcCos[(ar*br - aj*bj)/(Sqrt[ar^2 + aj^2]*Sqrt[br^2 + bj^2])],
+     		ar*br - aj*bj < 0 && ar*bj + br*aj > 0},
 
-    return aacos(2*x / (1+x*x));
-}
+    (*{0,            ar*bj == 0 &&  br*aj ==0},*)
+    {Pi/2,    ar*br - aj*bj == 0 && ar*bj + br*aj != 0}
+    }];
+ */
 
-extern __m128 argz(__m128 *z);
+/**
+ * takes four float representing the complex numbers (ar + iaj) * (br + ibj),
+ * s.t. z = {ar, aj, br, bj}
+ **/
+extern __m128 argz2(float ar __attribute__((aligned(16))),
+                    float aj __attribute__((aligned(16))),
+                    float br __attribute__((aligned(16))),
+                    float bj __attribute__((aligned(16))));
+__asm__(
+#ifdef __clang__
+"_argz2: "
+#else
+"argz2: "
+#endif
+    "pushq %rbp\n\t"
+    "movq %rsp, %rbp\n\t"
+    "and $-16, %rsp\n\t"
+
+//    "vshufps $0x0, %xmm1, %xmm0, %xmm0\n\t" // ar, ar, aj, aj
+//    "vshufps $0x0, %xmm3, %xmm2, %xmm1\n\t" // br, br, bj, bj
+//    "vpermilps $0x27, %xmm0, %xmm0\n\t"     // aj, ar, aj, ar -> xmm0
+//    "vpermilps $0x87, %xmm1, %xmm1\n\t"     // bj, br, br, bj -> xmm1
+
+//    "vshufps $17, %xmm2, %xmm3, %xmm1\n\t"
+//    "vpermilps $221, %xmm1, %xmm0\n\t"
+
+    "vshufps $17, %xmm0, %xmm1, %xmm0\n\t"
+    "vpermilps $221, %xmm0, %xmm0\n\t"      // aj, aj, ar, ar -> xmm0
+
+    "vshufps $0x0, %xmm3, %xmm2, %xmm1\n\t"
+    "vpermilps $0x87, %xmm1, %xmm1\n\t"     // bj, br, br, bj -> xmm1
+
+    "vmulps %xmm0, %xmm1, %xmm0\n\t"        // aj*bj, ar*br, aj*br, ar*bj
+    "vpermilps $0xB1, %xmm0, %xmm3\n\t"
+    "vaddsubps %xmm0, %xmm3, %xmm0\n\t"     // ar*br - aj*bj, ... , ar*bj + aj*br
+    "vmulps %xmm0, %xmm0, %xmm1\n\t"        // (ar*br - aj*bj)^2, ... , (ar*bj + aj*br)^2
+    "vpermilps $0x1B, %xmm1, %xmm2\n\t"     // 0123 = 00011011 = 1B
+    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
+    "vsqrtps %xmm1, %xmm1\n\t"              // Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+    "vdivps %xmm1, %xmm0, %xmm1\n\t"        // (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+    "vxorps %xmm2, %xmm2, %xmm2\n\t"
+//    "vcmpps $2, %xmm2, %xmm0, %xmm2\n\t"    // elements of xmm0 != 0
+    "movq $0x3F800000, %rdx\n\t"
+    "movq $0xBF800000, %rbx\n\t"
+    "vextractps $3, %xmm0, %rcx\n\t"
+    "shrq $31, %rcx\n\t"
+    "cmp $1, %rcx\n\t"
+    "cmove %rbx, %rdx\n\t"
+
+    "vmovq %rdx, %xmm2\n\t"
+    "vbroadcastss %xmm2, %xmm2\n\t"
+    "movq $0x3fc90fdb, %rcx\n\t"
+    "vmovq %rcx, %xmm3\n\t"
+    "vbroadcastss %xmm5, %xmm5\n\t"
+    "vmulps %xmm1, %xmm1, %xmm0\n\t"
+    "vmulps %xmm0, %xmm0, %xmm0\n\t"
+    "vmulps %xmm0, %xmm0, %xmm0\n\t"
+    "vmulps %xmm5, %xmm0, %xmm0\n\t"
+    "vaddps %xmm1, %xmm0, %xmm0\n\t"
+    "vsubps %xmm0, %xmm3, %xmm0\n\t"
+    "vmulps %xmm2, %xmm0, %xmm0\n\t"
+    "jmp end\n\t"
+
+"end: "
+    "movq  %rbp, %rsp\n\t"
+    "popq %rbp\n\t"
+    "ret\n\t"
+);
+
+extern __m128 argz(__m128 *__restrict__ z);
 __asm__(
 #ifdef __clang__
 "_argz: "
@@ -115,11 +184,11 @@ __asm__(
     "vxorps %xmm1, %xmm1, %xmm1\n\t"
     "vcmpless %xmm1, %xmm2, %xmm1\n\t"
     "movq %xmm1, %rcx\n\t"
-    "jrcxz posx\n\t"                    // if (x > 0) goto .posx
+    "jrcxz posx\n\t"                    // if (zr > 0) goto .posx
 
     "movq %xmm3, %rcx\n\t"
     "cmp %rdx, %rcx\n\t"
-    "jnz ynz\n\t"                       // if y also != 0 continue on
+    "jnz ynz\n\t"                       // if zj also != 0 continue on
     "movl $0x40490fdb, %edx\n\t"
     "movq %rdx, %xmm0\n\t"
     "vbroadcastss %xmm0, %xmm0\n\t"
@@ -142,17 +211,17 @@ __asm__(
 
 /* Approximate via
  * https://www-labs.iro.umontreal.ca/~mignotte/IFT2425/Documents/EfficientApproximationArctgFunction.pdf (11) */
-    "movq $0x42000000, %rdx\n\t"
-    "vmovq %rdx, %xmm2\n\t"
-    "vbroadcastss %xmm2, %xmm2\n\t"         // 32, 32, 32, 32 -> xmm2
-    "movq $0x41100000, %rdx\n\t"
-    "vmovq %rdx, %xmm3\n\t"
-    "vbroadcastss %xmm3, %xmm3\n\t"         // 9, 9, 9, 9 -> xmm3
-    "vmulps %xmm0, %xmm0, %xmm1\n\t "       // x*x, x*x, x*x, x*x -> xmm1
-    "vmulps %xmm3, %xmm1, %xmm1\n\t"        // 9xx ,.. -> xmm1
-    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // 9xx + 32, ... -> xmm1
-    "vmulps %xmm2, %xmm0, %xmm0\n\t"        // 32x, ... -> xmm0
-    "vdivps %xmm1, %xmm0, %xmm0\n\t"        // 32x/(9xx + 32), ... -> xmm0
+//    "movq $0x42000000, %rdx\n\t"
+//    "vmovq %rdx, %xmm2\n\t"
+//    "vbroadcastss %xmm2, %xmm2\n\t"         // 32, 32, 32, 32 -> xmm2
+//    "movq $0x41100000, %rdx\n\t"
+//    "vmovq %rdx, %xmm3\n\t"
+//    "vbroadcastss %xmm3, %xmm3\n\t"         // 9, 9, 9, 9 -> xmm3
+//    "vmulps %xmm0, %xmm0, %xmm1\n\t "       // x*x, x*x, x*x, x*x -> xmm1
+//    "vmulps %xmm3, %xmm1, %xmm1\n\t"        // 9xx ,.. -> xmm1
+//    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // 9xx + 32, ... -> xmm1
+//    "vmulps %xmm2, %xmm0, %xmm0\n\t"        // 32x, ... -> xmm0
+//    "vdivps %xmm1, %xmm0, %xmm0\n\t"        // 32x/(9xx + 32), ... -> xmm0
 
 /* Cheat */
 //    "vextractps $1, %xmm0, %rdx\n\t" // TODO replace this with function call to one that takes a vector
@@ -175,23 +244,6 @@ __asm__(
     "ret\n\t"
 );
 
-static void aatan2(const float y, const float x, float *__restrict__ result) {
-
-    if (x == 0.f && y == 0.f) {
-        *result = NAN;
-    }
-
-    if (0.0f == x) {
-        *result =  y > 0.0f ? M_PI_2 : -M_PI_2;
-    } else {
-        if (ffabsf(x) > ffabsf(y)) {
-            *result =  x > 0.f ? aatan(y / x) : y >= 0.f ? aatan(y / x) + M_PI : aatan(y / x) - M_PI;
-        } else {
-            *result =  y > 0.f ? -aatan(x / y) + M_PI_2 : -aatan(x / y) - M_PI_2;
-        }
-    }
-}
-
 static inline void runTest(struct atanArgs *args, float *__restrict__ result) {
 
     args->fun(args->x, args->y, result);
@@ -202,13 +254,25 @@ static inline void arctan2Wrapper(const float x, const float y, float *__restric
     *result = atan2(x,y);
 }
 
-int main(void) {
+float atanTwo1(float x, float y) {
+    float *result;
+    aatan2(x, y, result);
+    return *result;
+}
 
+static void runDebugTests() {
     static char *runNames[TIMING_RUNS] = {"aatan2 :: ", "atan2 :: "};
-    int i, j;
-    struct atanArgs args;
+    static union vect v = {-5, -5, 10, 10};
+    static union vect u = {5, 5, 10, 10};
+    static union vect vbar = {-oneOverRootFive, -oneOverRootFive, twoOverRootFive, twoOverRootFive}; // => Sqrt[25 + 100] = 5*sqrt[5]
+    static union vect ubar = {oneOverRootFive, oneOverRootFive, twoOverRootFive, twoOverRootFive};
+    static union vect x = {0,0,0,0};
+    static union vect y = {-1, -1, 0, 0};
+    static union vect w;
     float results[TIMING_RUNS], delta;
+    struct atanArgs args;
 
+    int i,j;
     for (i = j = MAX; i < MAX; j += STEP) {
 
         // z_norm = (x + iy) / ||(x + iy)|| =  (x + iy) / Sqrt[x^2 + y^2]
@@ -235,15 +299,6 @@ int main(void) {
             i++;
         }
     }
-
-#ifdef DEBUG
-    static union vect v = {-5, -5, 10, 10};
-    static union vect u = {5, 5, 10, 10};
-    static union vect vbar = {-oneOverRootFive, -oneOverRootFive, twoOverRootFive, twoOverRootFive}; // => Sqrt[25 + 100] = 5*sqrt[5]
-    static union vect ubar = {oneOverRootFive, oneOverRootFive, twoOverRootFive, twoOverRootFive};
-    static union vect x = {0,0,0,0};
-    static union vect y = {-1, -1, 0, 0};
-    static union vect w;
 
     float r = v.arr[0];
     float k = v.arr[3];
@@ -306,8 +361,88 @@ int main(void) {
 
     printf("%X %X %X %X\n", _MM_SHUFFLE(2,1,2,1), _MM_SHUFFLE(1,2,1,2), _MM_SHUFFLE(3,1,2,0),
            _MM_SHUFFLE(3,2,1,0));
-#endif
-    printTimedRuns(runNames, TIMING_RUNS);
-    
+
+//    printTimedRuns(runNames, TIMING_RUNS);
+}
+
+void foo() {
+    int i, j, n = 0;
+    struct timespec tstart, tend;
+    float f = -1000000.f;
+    float g;
+
+    float x = g;
+    float y = f;
+
+    float a = g;
+    float b = f;
+    for (i = 0; i < 2000L; ++i, f += 0.1f) {
+        for (g = -1000000.f, j = 0; j < 2000L; ++j, g += 0.1f, n++) {
+            x = g;
+            y = f;
+            a = g;
+            b = f;
+
+            clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+            absMaxMin(&x, &y);
+
+            clock_gettime(CLOCK_MONOTONIC, &tend);
+            findDeltaTime(0, &tstart, &tend);
+
+            clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+            flipAbsMaxMin(&a, &b);
+
+            clock_gettime(CLOCK_MONOTONIC, &tend);
+            findDeltaTime(1, &tstart, &tend);
+
+            assert(a == x && b == y);
+        }
+    }
+
+    static char *runNames[TIMING_RUNS] = {"absMaxMin :: ", "flipAbsMaxMin :: "};
+    printTimedRuns(runNames, 2);
+    printf("Iterations: %d\n" , n);
+}
+
+float bar(float a, float b, float c, float d) {
+    float x = a*c - b*d;
+    float y = a*d + b*c;
+    float result = x*x + y*y;
+
+    return fsqrtf(result);
+}
+
+int main(void) {
+
+    int i, j;
+    union vect z, w;
+
+    for (i = -2; i < -1; ++i) {
+//        for (j = -2; j < -1; ++j) {
+//            for (k = -2; k < -1; ++k) {
+//                for (m = -2; m < -1; ++m) {
+//
+        z.vect = argz2(1,2,3,4);
+        printf("Arg[(%f + %fi)]\n", -5.0f, 10.f);
+        printf("%f %f %f %f\n\n", z.arr[0], z.arr[1], z.arr[2], z.arr[3]);
+
+        z.vect = argz2(4,3,2,1);
+        printf("Arg[(%f + %fi)]\n", 5.0f, 10.f);
+        printf("%f %f %f %f\n\n", z.arr[0], z.arr[1], z.arr[2], z.arr[3]);
+
+        z.vect = argz2(-5,-10,1,0);
+        printf("Arg[(%f + %fi)]\n", -5.0f, -10.f);
+        printf("%f %f %f %f\n\n", z.arr[0], z.arr[1], z.arr[2], z.arr[3]);
+
+        z.vect = argz2(5,-10,1,0);
+        printf("Arg[(%f + %fi)]\n",5.f, -10.f);
+        printf("%f %f %f %f\n\n", z.arr[0], z.arr[1], z.arr[2], z.arr[3]);
+
+//            z = (union vect){.vect = argz2(i,j,j,i)};
+//            printf("%f %f %f %f\n", z.arr[0], z.arr[1], z.arr[2], z.arr[3]);
+    }
+
     return 0;
 }

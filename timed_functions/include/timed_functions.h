@@ -29,7 +29,8 @@
 #include <unistd.h>
 #include <assert.h>
 
-#define NINE_THIRTY_SECONDS 0.28125f
+#define NINE_THIRTY_SECONDS 0.28125F
+#define NINE_THIRTY_SECONDS_F 0x3e900000
 #define FLOAT_S_FLIP_MASK  0x7FFFFFFFU
 #define FLOAT_E_MASK       0x7F8FFFFFU
 #define FLOAT_S_MASK       0x80000000U
@@ -121,38 +122,44 @@ static const uint64_t DOUBLE_IMPLIED_BIT = DOUBLE_M_MASK + 1LU;
 
 static long double rollingTimeAvgs[TIMING_RUNS];
 
-void findDeltaTime(int idx, const struct timespec *__restrict__ tstart, const struct timespec *__restrict__ tend);
+void findDeltaTime(int idx  __attribute__((aligned(16))), const struct timespec *__restrict__ tstart, const struct timespec *__restrict__ tend);
 
-void timeFun(timedFun fun, void *__restrict__ s, void **__restrict__ result, int i);
+void timeFun(timedFun fun, void *__restrict__ s, void **__restrict__ result, int i  __attribute__((aligned(16))));
 
-union unFloat timeFunf(timedFunF fun, float s, int i);
+union unFloat __attribute__((aligned(16))) timeFunf(timedFunF fun, float s __attribute__((aligned(16))), int i  __attribute__((aligned(16))));
 
-union unDouble timeFund(timedFunD fun, double s, int i);
+union unDouble __attribute__((aligned(16))) timeFund(timedFunD fun, double s __attribute__((aligned(16))), int i __attribute__((aligned(16))));
 
-void printTimedRuns(char **__restrict__ runNames, const uint32_t length);
+void __attribute__((aligned(16))) printTimedRuns(char **__restrict__ runNames, const uint32_t length __attribute__((aligned(16))));
 
-int signumf(float y __attribute__((aligned(16))));
+int __attribute__((aligned(16))) signumf(float y __attribute__((aligned(16))));
 
-int signum(double y __attribute__((aligned(16))));
+int __attribute__((aligned(16))) signum(double y __attribute__((aligned(16))));
 
-uint64_t findMsb(uint64_t n __attribute__((aligned(16))));
+uint64_t __attribute__((aligned(16))) findMsb(uint64_t n __attribute__((aligned(16))));
 
-int bitScanReverse(uint64_t bb __attribute__((aligned(16))));
+int __attribute__((aligned(16))) bitScanReverse(uint64_t bb __attribute__((aligned(16))));
 
-float sqrtApproxf(const float z __attribute__((aligned(16))));
+float __attribute__((aligned(16))) sqrtApproxf(const float z __attribute__((aligned(16))));
 
-double sqrtApprox(const double z __attribute__((aligned(16))));
+double __attribute__((aligned(16))) sqrtApprox(const double z __attribute__((aligned(16))));
 
-uint32_t dividByPow2f(float *__restrict__ x __attribute__((aligned(16))), int16_t n __attribute__((aligned(16))));
+float __attribute__((aligned(16))) dividByPow2f(float x __attribute__((aligned(16))), int16_t n __attribute__((aligned(16))));
 
 float __attribute__((aligned(16))) aatan(const float z __attribute__((aligned(16))));
 
-float sqrtApproxf(const float z);
+float __attribute__((aligned(16))) sqrtApproxf(const float z __attribute__((aligned(16))));
 
-double sqrtApprox(const double z);
+double __attribute__((aligned(16))) sqrtApprox(const double z __attribute__((aligned(16))));
+
+void aatan2(const float y __attribute__((aligned(16))), const float x __attribute__((aligned(16))), float *__restrict__ result);
+
+float __attribute__((aligned(16))) aatanTwo(float  __attribute__((aligned(16))) y, float  __attribute__((aligned(16))) x);
+
+void flipAbsMaxMin(float *__attribute__((aligned(16))) x, float *__attribute__((aligned(16))) y);
 
 // TODO implement double precision version of below
-__asm__(
+__asm__( // ffabsf
 #ifdef __clang__
 "_ffabsf: "
 #else
@@ -164,7 +171,7 @@ __asm__(
     "ret"
 );
 
-__asm__ (
+__asm__ ( // fsqrt
 #ifdef __clang__
 "_fsqrt: "
 #else
@@ -186,7 +193,8 @@ __asm__ (
     "ret"
 #endif
 );
-__asm__ (
+
+__asm__ (// fsqrtf
 #ifdef __clang__
 "_fsqrtf: "
 #else
@@ -209,7 +217,7 @@ __asm__ (
 #endif
 );
 
-__asm__(
+__asm__( // isNegZero
 #ifdef __clang__
 "_isNegZero: "
 #else
@@ -217,6 +225,46 @@ __asm__(
 #endif
     "movq %xmm0, %rax\n\t"
     "andl $0x80000000, %eax\n\t"
+    "ret"
+);
+
+__asm__ (
+#ifdef __APPLE_CC__
+"_swap2: "
+#else
+"swap2: "
+#endif
+    "movq (%rsi), %xmm0\n\t"
+    "movq (%rdi), %xmm1\n\t"
+    "movq %xmm1, (%rsi)\n\t"
+    "movq %xmm0, (%rdi)\n\t"
+    "ret"
+);
+
+__asm__( // absMaxMin
+#ifdef __clang__
+"_absMaxMin: "
+#else
+"absMaxMin: "
+#endif
+    "movl (%rdi), %eax\n\t"
+    "movl (%rsi), %ecx\n\t"
+    "andl $0x7FFFFFFF, %eax\n\t"
+    "andl $0x7FFFFFFF, %ecx\n\t"
+
+    "movq %rax, %xmm0\n\t"
+    "movq %rcx, %xmm1\n\t"
+
+    "comiss %xmm1, %xmm0\n\t"
+    "jna flip\n\t"
+
+    "movl %eax, (%rdi)\n\t"
+    "movl %ecx, (%rsi)\n\t"
+    "ret\n\t"
+
+"flip: "
+    "movl %ecx, (%rdi)\n\t"
+    "movl %eax, (%rsi)\n\t"
     "ret"
 );
 #endif //TIMED_FUNCTIONS_H
