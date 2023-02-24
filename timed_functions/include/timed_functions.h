@@ -106,8 +106,8 @@ typedef double (*timedFunD)(double n);
 typedef void (*timedFun)(void *n, void *result);
 
 union vect {
-    float arr[4] __attribute__((aligned(16)));
-    uint64_t i64[2] __attribute__((aligned(16)));
+    float arr[4] ;
+    uint64_t i64[2] ;
     __m128 vect;
 };
 
@@ -129,41 +129,41 @@ static const uint64_t DOUBLE_IMPLIED_BIT = DOUBLE_M_MASK + 1LU;
 
 static long double rollingTimeAvgs[TIMING_RUNS];
 
-void findDeltaTime(int idx  __attribute__((aligned(16))), const struct timespec *__restrict__ tstart, const struct timespec *__restrict__ tend);
+void findDeltaTime(int idx  , const struct timespec *__restrict__ tstart, const struct timespec *__restrict__ tend);
 
-void timeFun(timedFun fun, void *__restrict__ s, void **__restrict__ result, int i  __attribute__((aligned(16))));
+void timeFun(timedFun fun, void *__restrict__ s, void **__restrict__ result, int i  );
 
-union unFloat __attribute__((aligned(16))) timeFunf(timedFunF fun, float s __attribute__((aligned(16))), int i  __attribute__((aligned(16))));
+union unFloat  timeFunf(timedFunF fun, float s , int i  );
 
-union unDouble __attribute__((aligned(16))) timeFund(timedFunD fun, double s __attribute__((aligned(16))), int i __attribute__((aligned(16))));
+union unDouble  timeFund(timedFunD fun, double s , int i );
 
-void __attribute__((aligned(16))) printTimedRuns(char **__restrict__ runNames, const uint32_t length __attribute__((aligned(16))));
+void  printTimedRuns(char **__restrict__ runNames, const uint32_t length );
 
-int __attribute__((aligned(16))) signumf(float y __attribute__((aligned(16))));
+int  signumf(float y );
 
-int __attribute__((aligned(16))) signum(double y __attribute__((aligned(16))));
+int  signum(double y );
 
-uint64_t __attribute__((aligned(16))) findMsb(uint64_t n __attribute__((aligned(16))));
+uint64_t  findMsb(uint64_t n );
 
-int __attribute__((aligned(16))) bitScanReverse(uint64_t bb __attribute__((aligned(16))));
+int  bitScanReverse(uint64_t bb );
 
-float __attribute__((aligned(16))) sqrtApproxf(const float z __attribute__((aligned(16))));
+float  sqrtApproxf(const float z );
 
-double __attribute__((aligned(16))) sqrtApprox(const double z __attribute__((aligned(16))));
+double  sqrtApprox(const double z );
 
-float __attribute__((aligned(16))) dividByPow2f(float x __attribute__((aligned(16))), int16_t n __attribute__((aligned(16))));
+float  dividByPow2f(float x , int16_t n );
 
-float __attribute__((aligned(16))) aatan(const float z __attribute__((aligned(16))));
+float  aatan(const float z );
 
-float __attribute__((aligned(16))) sqrtApproxf(const float z __attribute__((aligned(16))));
+float  sqrtApproxf(const float z );
 
-double __attribute__((aligned(16))) sqrtApprox(const double z __attribute__((aligned(16))));
+double  sqrtApprox(const double z );
 
-void aatan2(const float y __attribute__((aligned(16))), const float x __attribute__((aligned(16))), float *__restrict__ result);
+void aatan2(const float y , const float x , float *__restrict__ result);
 
-float __attribute__((aligned(16))) aatanTwo(float  __attribute__((aligned(16))) y, float  __attribute__((aligned(16))) x);
+float  aatanTwo(float   y, float   x);
 
-void flipAbsMaxMin(float *__attribute__((aligned(16))) x, float *__attribute__((aligned(16))) y);
+void flipAbsMaxMin(float * x, float * y);
 
 // TODO implement double precision version of below
 __asm__( // ffabsf

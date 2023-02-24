@@ -31,17 +31,17 @@
 #define STEP 1
 //#define DEBUG
 
-extern float __attribute__((aligned(16))) ffabsf(float f __attribute__((aligned(16))));
-extern float __attribute__((aligned(16))) fsqrtf(float x __attribute__((aligned(16))));
+extern float  ffabsf(float f );
+extern float  fsqrtf(float x );
 
 /**
  * takes four float representing the complex numbers (ar + iaj) * (br + ibj),
  * s.t. z = {ar, aj, br, bj}
  **/
-extern float argz2(float ar __attribute__((aligned(16))),
-                    float aj __attribute__((aligned(16))),
-                    float br __attribute__((aligned(16))),
-                    float bj __attribute__((aligned(16))));
+extern float argz2(float ar ,
+                    float aj ,
+                    float br ,
+                    float bj );
 __asm__(
 #ifdef __clang__
 "_argz2: "

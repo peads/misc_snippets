@@ -77,10 +77,10 @@ __asm__(
  * (ar + iaj) * (br + ibj), * s.t. z = {ar, aj, br, bj}
  * and return their argument.
  **/
-extern float argzB(float ar __attribute__((aligned(16))),
-                   float aj __attribute__((aligned(16))),
-                   float br __attribute__((aligned(16))),
-                   float bj __attribute__((aligned(16))));
+extern float argzB(float ar ,
+                   float aj ,
+                   float br ,
+                   float bj );
 __asm__(
 #ifdef __clang__
 "_argzB: "
@@ -160,10 +160,10 @@ int main(void){
     static char *runNames[TIMING_RUNS]
     = {"argz :: ", "argz_ps :: ","conjz :: ", "conjz_ps :: ", "argzB :: "};
 
-    float ar __attribute__((aligned(16)));
-    float aj __attribute__((aligned(16)));
-    float br __attribute__((aligned(16)));
-    float bj __attribute__((aligned(16)));
+    float ar ;
+    float aj ;
+    float br ;
+    float bj ;
     float true;
 
     float deltaArg, deltaR, deltaJ, deltaConjR, deltaConjJ;

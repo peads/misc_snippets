@@ -25,13 +25,13 @@
 static const uint8_t SIZE = TIMING_RUNS >> 1;
 
 
-extern float __attribute__((aligned(16))) fsqrtf(float n __attribute__((aligned(16))));
-extern float __attribute__((aligned(16))) fsqrt(float n __attribute__((aligned(16))));
+extern float  fsqrtf(float n );
+extern float  fsqrt(float n );
 extern float ffabsf(float f);
 
 
 // The next two are too trivially to be implemented as to not be worth putting in the header
-extern float vectorSqrtf(float n __attribute__((aligned(16))));
+extern float vectorSqrtf(float n );
 __asm__ (
 #ifdef __clang__
 "_vectorSqrtf: "
@@ -46,7 +46,7 @@ __asm__ (
 #endif
 );
 
-extern double vectorSqrt(double n __attribute__((aligned(16))));
+extern double vectorSqrt(double n );
 __asm__ (
 #ifdef __clang__
 "_vectorSqrt: "

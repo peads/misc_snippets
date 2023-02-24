@@ -83,7 +83,7 @@ __asm__ (
 );
 
 union vect {
-    float arr[4] __attribute__((aligned(16)));
+    float arr[4] ;
     __m128 vect;
 };
 
