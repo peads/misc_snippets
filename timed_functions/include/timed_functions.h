@@ -28,6 +28,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <assert.h>
+#include <emmintrin.h>
 
 #define NINE_THIRTY_SECONDS 0.28125F
 #define NINE_THIRTY_SECONDS_F 0x3e900000
@@ -103,6 +104,12 @@
 typedef float (*timedFunF)(float n);
 typedef double (*timedFunD)(double n);
 typedef void (*timedFun)(void *n, void *result);
+
+union vect {
+    float arr[4] __attribute__((aligned(16)));
+    uint64_t i64[2] __attribute__((aligned(16)));
+    __m128 vect;
+};
 
 union unDouble {
     double f;
