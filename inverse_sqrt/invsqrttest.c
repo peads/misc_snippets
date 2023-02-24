@@ -24,7 +24,7 @@
 
 #define MAX_ERROR 10e-5
 #define MIN 0
-#define MAX 20
+#define MAX 10e3
 #define STEP 0.001
 
 #if defined(__x86_64__) || defined(_M_X64)
@@ -127,26 +127,26 @@ __asm__(
 #else
 "asmInvSqrtB: "
 #endif
-    "xorps %xmm1, %xmm1\n\t"
+    "vxorps %xmm1, %xmm1, %xmm1\n\t"
     "vucomiss %xmm0, %xmm1\n\t"
     "jae return\n\t"
 
-    "movq %xmm0, %rax\n\t"// load x0
-    "movl $0xBf000000, %edx\n\t"
-    "movq %rdx, %xmm1\n\t"           // -1/2 -> xmm1
-    "mulss %xmm0, %xmm1\n\t" // -x0/2 -> xmm1
+    "vmovd %xmm0, %eax\n\t"// load x0
+    "movl $0x3f000000, %edx\n\t"
+    "vmovd %edx, %xmm1\n\t"           // -1/2 -> xmm1
+    "vmulss %xmm0, %xmm1, %xmm1\n\t" // -x0/2 -> xmm1
 
-    "shrl $1, %eax\n\t"
-    "negl %eax\n\t"
-    "addl $0x5f3759df, %eax\n\t"
-    "movq %rax, %xmm0\n\t"           // x = 0x5f3759df - (x0 >> 1) -> xmm1
+    "shr %eax\n\t"
+    "movl $0x5f3759df, %ecx\n\t"
+    "subl %eax, %ecx\n\t"
+    "vmovd %ecx, %xmm0\n\t"           // x = 0x5f3759df - (x0 >> 1) -> xmm1
 
-    "vmulps %xmm0, %xmm0, %xmm2\n\t" // x*x -> xmm2
-    "mulss %xmm2, %xmm1\n\t" //-x0/2x * x*x -> xmm1
+    "vmulss %xmm0, %xmm0, %xmm2\n\t" // x*x -> xmm2
+    "vmulss %xmm2, %xmm1, %xmm1\n\t" //-x0/2x * x*x -> xmm1
     "movl $0x3fc00000, %eax\n\t"
-    "movq %rax, %xmm2\n\t"           // 3/2 -> xmm2
-    "addss %xmm2, %xmm1\n\t" // 3/2 - x0/2 * x*x
-    "mulss %xmm1, %xmm0\n\t" // x*(3/2 - x/2 * x*x)
+    "vmovd %eax, %xmm2\n\t"           // 3/2 -> xmm2
+    "vsubss %xmm1, %xmm2, %xmm1\n\t" // 3/2 - x0/2 * x*x
+    "vmulss %xmm1, %xmm0, %xmm0\n\t" // x*(3/2 - x/2 * x*x)
 
 "return: "
     "ret"
@@ -190,7 +190,7 @@ int main(void) {
         findDeltaTime(2, &tstart, &tend);
         // END TIMED
 
-        printf("Sqrt[%f] = %f, %f, %f, %f\n", f, 1/fsqrtf(f), a, b, c);
+        //printf("Sqrt[%f] = %f, %f, %f, %f\n", f, 1/fsqrtf(f), a, b, c);
 
         deltas[0] = (long double) ffabsf(ffabsf(a) - ffabsf(b));
         assert(deltas[0] < MAX_ERROR);
