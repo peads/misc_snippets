@@ -30,6 +30,10 @@ union m256_8 {
 //    int16_t buf[16];
 //};
 
+//    static const __m256i zero = {0,0,0,0};
+static const __m256i Z // all 127s
+    = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
+
 static __m256i *buf8;
 //static __m256i *buf16;
 
@@ -47,14 +51,10 @@ static inline __m256i convert(__m256i data) {
 
 static void convertTo16Bit(uint32_t len) {
 
-//    const __m256i zero = _mm256_setzero_si256();
-    const __m256i Z = _mm256_set1_epi16(0x7E7F);
-    const __m256i z = _mm256_set1_epi8(127);
-
     static char sampleMax = 0;
+    static int samplePowCount = 0;
 
     int i;
-    int samplePowCount = 0;
 
     __m256i lower;
     __m256i upper;
@@ -67,24 +67,24 @@ static void convertTo16Bit(uint32_t len) {
         sm = _mm256_max_epi8(buf8[0], buf8[1]);
 
         for (i = 2; i < len; ++i) {
+
             sm = _mm256_max_epi8(sm, buf8[i]);
         }
 
         sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
-
-        for (i = 0; i < len; i+=2) {
-
-            lower = _mm256_sub_epi8(buf8[i], z);
-            upper = _mm256_sub_epi8(buf8[i+1], z);
-
-            sampleP = _mm256_add_epi16(_mm256_mullo_epi16(lower, upper), sampleP);
-            samplePowSum = _mm256_avg_epu16(_mm256_add_epi16(samplePowSum, sampleP), sampleP);
-            ++samplePowCount;
-        }
     }
 
     for (i = 0; i < len; i++) {
-        buf8[i] = _mm256_sub_epi16(buf8[i], Z);
+        buf8[i] = _mm256_sub_epi8(buf8[i], Z);
+    }
+
+    if (isCheckADCMax) {
+        for (i = 0; i < len; i+=2) {
+
+            sampleP = _mm256_add_epi16(_mm256_mullo_epi16(buf8[i], buf8[i+1]), sampleP);
+            samplePowSum = _mm256_avg_epu16(_mm256_add_epi16(samplePowSum, sampleP), sampleP);
+            ++samplePowCount;
+        }
     }
 }
 
@@ -111,6 +111,9 @@ static void breakit(uint8_t *arr, const uint32_t len, const uint32_t size) {
 
 int main(void) {
 
+    printf("sizeof :: short %lu, int: %lu, long: %lu, uint8_t: %lu, uint16_t: %lu, uint32_t: %lu\n",
+           sizeof(char), sizeof(short), sizeof(int), sizeof(uint8_t), sizeof(uint16_t), sizeof(uint32_t));
+
     srand(time(NULL));
 
     __m256i tmp;
@@ -125,9 +128,9 @@ int main(void) {
 
     for (i = 0; i < len; ++i) {
         if (i % 32 == 0) printf("\n");
-        val = (100 + rand()) % 10;
+        val = (100 + rand()) % 255;
         arr[i] = val;
-        printf("%d, ", val);
+        printf("%X, ", val);
     }
     printf("\n\n");
 
@@ -180,7 +183,7 @@ int main(void) {
 
     for (i=0; i<(int)len; i++) {
         if (i % 32 == 0) printf("\n");
-        printf("%X, ",  (arr[i] - 127) & 0xFF);
+        printf("%X, ",  (short)arr[i] - 127);
     }
     printf("\n");
 }
