@@ -19,10 +19,12 @@
 #include "timed_functions.h"
 
 union v {
-    uint8_t *buf;
-    uint16_t *buf16;
+    uint8_t buf[32] /*__attribute__((aligned(32))*/;
     __m256i v;
+//    uint16_t *buf16;
+
 };
+
 
 int isCheckADCMax = 1;
 
@@ -73,41 +75,47 @@ static void convertTo16Bit(uint32_t len) {
     }
 }
 
-static void breakit(uint8_t *arr, const uint32_t len, const uint32_t size) {
+static void breakit(  uint8_t *arr, const uint32_t len, const uint32_t size) {
 
     int j = 0;
-    int i = 0;
+    int i;
     uint32_t unit = sizeof(uint8_t);
     long leftToProcess = len;
-    uint32_t step = 1 << 4;//256 / (unit << 3);
-    uint32_t remainder = len - (len / step << 5);
-    uint8_t *temp;
+    uint32_t step = unit << 5;
+    uint32_t chunk = step * unit;
+//    uint32_t remainder = len - (len / step << 5);
+//    uint8_t temp[32];
     union v z;
 
-    buf8 = calloc(size << 5, sizeof(__m256i));
+    buf8 = calloc(size * chunk, sizeof(__m256i));
 
-    for (; leftToProcess > 0; i += step, ++j) {
-        temp = arr + i;
-        z = (union v){ temp };
+    for (i = 0; leftToProcess > 0; i += step, ++j) {
+
+        memcpy(z.buf, arr + i, chunk);
         buf8[j] = z.v;
-
         leftToProcess -= step;
     }
+//    if (leftToProcess) {
+//        memset(temp+remainder, 0, step-remainder);
+//        z = (union v){ temp };
+//        buf8[j-1] = z.v;
+//    }
 }
 
 int main(void) {
 
     srand(time(NULL));
 
-    uint8_t arr[(1 << 6) + 1] __attribute__((aligned(16)));
+    uint8_t arr[(1 << 6) + 27] /*__attribute__((aligned(32))*/;
     uint32_t len = sizeof(arr) / sizeof(*arr);
     uint32_t size = len / (sizeof(char) << 4) + 1;
-    uint8_t val __attribute__((aligned(16)));
-    int j, i = 0;
+    uint8_t val /*__attribute__((aligned(32))*/;
+    int j, i;
 
     assert(size > 0);
 
-    for (; i < len; ++i) {
+    for (i = 0; i < len; ++i) {
+        if (i % 16 == 0) printf("\n");
         val = (100 + rand()) % 10;
         arr[i] = val;
         printf("%d, ", val);
@@ -118,7 +126,7 @@ int main(void) {
 
     for (i = 0; i < size; ++i) {
         union v z = {.v = buf8[i]};
-        for (j = 0; j < 16; ++j) {
+        for (j = 0; j < 32; ++j) {
             printf("%X, ", z.buf[j]);
         }
         printf("\n");
