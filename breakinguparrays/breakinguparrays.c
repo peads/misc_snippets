@@ -30,11 +30,9 @@ union m256_8 {
 
 int isCheckADCMax = 1;
 
-static const __m256i zero = {0,0,0,0};
+//static const __m256i zero = {0,0,0,0};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
-static const __m256i W // all 127s
-        = {0xffffffffffffffff, 0xffffffffffffffff,0xffffffffffffffff,0xffffffffffffffff};
 
 static __m256i *buf8;
 
@@ -45,9 +43,7 @@ static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
 
 static inline __m256i convert(__m256i data) {
     __m128i lo_lane = _mm256_castsi256_si128(data);
-//    __m128i hi_lane =_mm256_extracti128_si256(data, 1);
     return _mm256_cvtepi8_epi16(lo_lane);
-//    return _mm256_set_m128i(hi_lane, lo_lane);
 }
 
 static void convertTo16Bit(uint32_t len) {
@@ -75,8 +71,8 @@ static void convertTo16Bit(uint32_t len) {
 
     for (i = 0; i < len; i++) {
         buf8[i] = convert(_mm256_sub_epi8(buf8[i], Z));
-//        buf8[i] = _mm256_packs_epi16(_mm256_unpackhi_epi8(buf8[i], zero), _mm256_unpacklo_epi8(buf8[i], zero));
     }
+
     if (isCheckADCMax) {
         for (i = 0; i < len; i+=2) {
 
@@ -142,16 +138,16 @@ int main(void) {
 
     convertTo16Bit(size);
 
-    for (i = 0; i < size; ++i) {
-
-        union m256_8 z = {.v = buf8[i]};
-
-        for (j = 0; j < LENGTH; ++j) {
-            printf("%X, ", z.buf[j]);
-        }
-        printf("\n");
-    }
-    printf("\n");
+//    for (i = 0; i < size; ++i) {
+//
+//        union m256_8 z = {.v = buf8[i]};
+//
+//        for (j = 0; j < LENGTH; ++j) {
+//            printf("%X, ", z.buf[j]);
+//        }
+//        printf("\n");
+//    }
+//    printf("\n");
 
     for (i = 0; i < size; ++i) {
 
@@ -163,18 +159,6 @@ int main(void) {
         printf("\n");
     }
     printf("\n");
-
-//    for (i = 0; i < size; ++i) {
-//
-//        temp = calloc(LENGTH, sizeof(uint16_t));
-//        _mm256_storeu_epi16(temp, buf8[i]);
-//
-//        for (j = 0; j < LENGTH; ++j) {
-//            printf("%X, ", temp[j]);
-//        }
-//        printf("\n");
-//    }
-//    printf("\n");
 
     for (i=0; i<(int)len; i++) {
         if (i % LENGTH == 0) printf("\n");
