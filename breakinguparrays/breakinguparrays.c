@@ -18,6 +18,8 @@
 #include <string.h>
 #include "timed_functions.h"
 
+#define SHIFT_SIZE 5
+
 union m256_8 {
     uint8_t buf[32] /*__attribute__((aligned(32))*/;
     __m256i v;
@@ -56,8 +58,6 @@ static void convertTo16Bit(uint32_t len) {
 
     int i;
 
-    __m256i lower;
-    __m256i upper;
     __m256i sm;
     __m256i sampleP = _mm256_setzero_si256();
     __m256i samplePowSum = _mm256_setzero_si256();
@@ -94,7 +94,7 @@ static void breakit(uint8_t *arr, const uint32_t len, const uint32_t size) {
     int i;
     uint32_t unit = sizeof(uint8_t);
     long leftToProcess = len;
-    uint32_t step = unit << 5;
+    uint32_t step = unit << SHIFT_SIZE;
     uint32_t chunk = step * unit;
     union m256_8 z;
 
@@ -119,7 +119,7 @@ int main(void) {
     __m256i tmp;
     uint8_t arr[(1 << 6) + 27] /*__attribute__((aligned(32))*/;
     uint32_t len = sizeof(arr) / sizeof(*arr);
-    uint32_t size = len / (sizeof(char) << 5) + 1;
+    uint32_t size = len / (sizeof(char) << SHIFT_SIZE) + 1;
     uint8_t val /*__attribute__((aligned(32))*/;
     uint16_t *temp;
     int j, i;
