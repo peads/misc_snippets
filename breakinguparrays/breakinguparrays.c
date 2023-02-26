@@ -61,11 +61,11 @@ static inline __m256i convert(__m256i data) {
     return _mm256_cvtepi8_epi16(lo_lane);
 }
 
-static void filterDcBlockRaw(const int len, short *testBuf) {
+static void filterDcBlockRaw(const int len) {
     __m256i sumIq = {0,0,0,0};
     __m256i avgIq = {0,0,0,0};
     // len x 4 matrix => 4*(len / 2) = 2*len or since avg  = x / len * 2^-1 = x/len >> 1
-    __m256i oneOverLen = _mm256_set1_epi16(16384 / len); // test if fixed point full-range then shift vs this is faster
+    __m256i oneOverLen = _mm256_set1_epi16(16384/len); // test if fixed point full-range then shift vs this is faster
     int i, j;
 
     long localSumI = 0;
@@ -75,18 +75,22 @@ static void filterDcBlockRaw(const int len, short *testBuf) {
 
     int avgI = 0;
     int avgQ = 0;
-    short sumI = 0;
-    short sumQ = 0;
+    long sumI = 0;
+    long sumQ = 0;
 
     for (i = 0; i < len; ++i) {
 
-        union m256_16 a = {.v = bufx4[0]};
+        union m256_16 a = {.v = bufx4[i]};
         localSumI += a.buf[0] + a.buf[2];
         localSumQ += a.buf[1] + a.buf[3];
-
+//        for (i = 0; i < 4; i += 2) {
+//
+//            localSumI += a.buf[i];// ((int)arr[j]) - 127;
+//            localSumI += a.buf[i + 1];//((int)arr[j+1]) - 127;
+//        }
         union m256_16 b = {.v =
-                (sumIq = _mm256_add_epi16(sumIq, _mm256_add_epi16(bufx4[0],
-                                       _mm256_shufflelo_epi16(bufx4[0],  _MM_SHUFFLE(1,0,3,2)))))};
+                (sumIq = _mm256_add_epi16(sumIq, _mm256_add_epi16(bufx4[i],
+                                       _mm256_shufflelo_epi16(bufx4[i],  _MM_SHUFFLE(1,0,3,2)))))};
 
         printf("%hX %hX vs %lX %lX\n", b.buf[0], b.buf[1], localSumI, localSumQ);
         assert(b.buf[0] == localSumI && b.buf[1] == localSumQ);
@@ -96,39 +100,40 @@ static void filterDcBlockRaw(const int len, short *testBuf) {
     union m256_16 b = {.v = (avgIq = _mm256_mulhrs_epi16(sumIq, oneOverLen))};
     short lai = b.buf[0];
     short laq = b.buf[1];
-    localAvgI += localSumI / len >> 1;
-    localAvgQ += localSumQ / len >> 1;
+    localAvgI += localSumI / (len << 1);
+    localAvgQ += localSumQ / (len << 1);
 
     printf("%hX %hX vs %X %X\n\n", lai, laq, localAvgI, localAvgQ);
     int deltas[2] = {abs(localAvgI) - abs(lai), abs(localAvgQ) - abs(laq)};
     assert(abs(deltas[0]) <= 1 && abs(deltas[0]) <= 1);
 
 
-    sumI = testBuf[0];
-    sumQ = testBuf[1];
-    for (j = 2; j < 96; j+=2) {
+    for (j = 0; j < len; j++) {
+        union m256_16 a = {.v = bufx4[j]};
+        for (i = 0; i < 4; i += 2) {
 
-        sumI += testBuf[i];
-        sumQ += testBuf[i+1];
+            sumI += a.buf[i];
+            sumQ += a.buf[i + 1];
+        }
     }
 
-    avgI = sumI / (len*4 / 2);
-    avgQ = sumQ / (len*4 / 2);
+    avgI = sumI / (len << 1);
+    avgQ = sumQ / (len << 1);
 
     printf("%hX %hX vs %X %X\n", lai, laq, avgI, avgQ);
     avgI = (avgI + dcAvgI * rdcBlockScalar) / (rdcBlockScalar + 1);
     avgQ = (avgQ + dcAvgQ * rdcBlockScalar) * (rdcBlockScalar + 1);
 
     for (i = 0; i < len; i += 2) {
-        testBuf[i] -= avgI;
-        testBuf[i+1] -= avgQ;
+        arr[i] -= avgI;
+        arr[i+1] -= avgQ;
     }
 
     dcAvgI = (int) avgI;
     dcAvgQ = (int) avgQ;
 }
 
-static uint32_t convertTo16Bit(uint32_t len, short *testBuf) {
+static uint32_t convertTo16Bit(uint32_t len) {
 
     int i,j,k;
     bufx4 = calloc(len << LOG2_LENGTH, sizeof(__m256i));
@@ -152,14 +157,7 @@ static uint32_t convertTo16Bit(uint32_t len, short *testBuf) {
 
         union m256_8 w = {.v = buf[j]};
 
-        for (i = 0; i < LENGTH; i += 4, k += 4) {
-
-            if (k < 91) {
-                testBuf[k] = w.buf16[i];
-                testBuf[k+1] = w.buf16[i + 1];
-                testBuf[k+2] = w.buf16[i + 2];
-                testBuf[k+3] = w.buf16[i + 3];
-            }
+        for (i = 0; i < LENGTH; i += 4) {
 
             union m256_16 z = {w.buf16[i], w.buf16[i+1], w.buf16[i+2], w.buf16[i+3]};
             bufx4[k++] = z.v;
@@ -194,17 +192,16 @@ int main(void) {
 
     srand(time(NULL));
 
-    __m256i tmp;
+//    __m256i tmp;
     uint32_t len = sizeof(arr) / sizeof(*arr);
     uint32_t size = len / (sizeof(char) << LOG2_LENGTH) + 1;
-    uint32_t samplePowCount = 0;
+//    uint32_t samplePowCount = 0;
     uint8_t val /*__attribute__((aligned(32))*/;
-    uint16_t *temp;
+//    uint16_t *temp;
     int j, i;
 
-    int16_t arr16[LENGTH*len];
-
     assert(size > 0);
+//    arr16 = calloc(len * LENGTH, sizeof(short));
 
     for (i = 0; i < len; ++i) {
         if (i % LENGTH == 0) printf("\n");
@@ -229,7 +226,7 @@ int main(void) {
     }
     printf("\n");
 
-    int k = convertTo16Bit(size, arr16);
+    int k = convertTo16Bit(size);
 
     for (i = 0; i < size; ++i) {
 
@@ -256,5 +253,7 @@ int main(void) {
     }
     printf("\n");
 
-    filterDcBlockRaw(k, arr16);
+    filterDcBlockRaw(k);
+
+//    free(arr16);
 }
