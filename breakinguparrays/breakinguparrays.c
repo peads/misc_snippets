@@ -28,14 +28,18 @@ union m256_8 {
 
 };
 
-int isCheckADCMax = 1;
-
 //static const __m256i zero = {0,0,0,0};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 
 static __m256i *buf8;
+static uint8_t sampleMax = 0;
+static int samplePowCount = 0;
 
+int isCheckADCMax = 1;
+int rdcBlockScalar = 9;
+int isRdc = 1;
+int isOffsetTuning = 1;
 
 static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
     return a > b ? a : b;
@@ -48,10 +52,7 @@ static inline __m256i convert(__m256i data) {
 
 static void convertTo16Bit(uint32_t len) {
 
-    static char sampleMax = 0;
-    static int samplePowCount = 0;
-
-    int i;
+    int i,j;
 
     __m256i sm;
     __m256i sampleP = _mm256_setzero_si256();
@@ -59,14 +60,26 @@ static void convertTo16Bit(uint32_t len) {
 
     if (isCheckADCMax) {
 
-        sm = _mm256_max_epi8(buf8[0], buf8[1]);
+        for (i = 0; i < len; ++i) {
 
-        for (i = 2; i < len; ++i) {
-
-            sm = _mm256_max_epi8(sm, buf8[i]);
+            sm = _mm256_max_epu8(sm, buf8[i]);
         }
-
         sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
+
+//        unsigned char tempSm = sampleMax;
+//
+//        for (j = 0; j < len; ++j) {
+//
+//            union m256_8 tmp = {.v = buf8[j]};
+//
+//            for (i = 0; i < LENGTH; i++) {
+//
+//                if (tmp.buf[i] > sampleMax)
+//                    tempSm = tmp.buf[i];
+//            }
+//        }
+
+//        printf("sampleMax: %d, tmpSm: %d\n", sampleMax, tempSm);
     }
 
     for (i = 0; i < len; i++) {
@@ -138,17 +151,6 @@ int main(void) {
 
     convertTo16Bit(size);
 
-//    for (i = 0; i < size; ++i) {
-//
-//        union m256_8 z = {.v = buf8[i]};
-//
-//        for (j = 0; j < LENGTH; ++j) {
-//            printf("%X, ", z.buf[j]);
-//        }
-//        printf("\n");
-//    }
-//    printf("\n");
-
     for (i = 0; i < size; ++i) {
 
         union m256_8 z = {.v = buf8[i]};
@@ -165,4 +167,6 @@ int main(void) {
         printf("%X, ",  ((short)arr[i]) - 127);
     }
     printf("\n");
+
+
 }
