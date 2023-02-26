@@ -34,7 +34,8 @@ static const __m256i Z // all 127s
 
 static __m256i *buf8;
 static uint8_t sampleMax = 0;
-static int samplePowCount = 0;
+static uint32_t samplePowSum = 0;
+static uint32_t sampleP = 0;
 
 int isCheckADCMax = 1;
 int rdcBlockScalar = 9;
@@ -55,8 +56,6 @@ static void convertTo16Bit(uint32_t len) {
     int i,j;
 
     __m256i sm;
-    __m256i sampleP = _mm256_setzero_si256();
-    __m256i samplePowSum = _mm256_setzero_si256();
 
     if (isCheckADCMax) {
 
@@ -65,34 +64,10 @@ static void convertTo16Bit(uint32_t len) {
             sm = _mm256_max_epu8(sm, buf8[i]);
         }
         sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
-
-//        unsigned char tempSm = sampleMax;
-//
-//        for (j = 0; j < len; ++j) {
-//
-//            union m256_8 tmp = {.v = buf8[j]};
-//
-//            for (i = 0; i < LENGTH; i++) {
-//
-//                if (tmp.buf[i] > sampleMax)
-//                    tempSm = tmp.buf[i];
-//            }
-//        }
-
-//        printf("sampleMax: %d, tmpSm: %d\n", sampleMax, tempSm);
     }
 
     for (i = 0; i < len; i++) {
         buf8[i] = convert(_mm256_sub_epi8(buf8[i], Z));
-    }
-
-    if (isCheckADCMax) {
-        for (i = 0; i < len; i+=2) {
-
-            sampleP = _mm256_add_epi16(_mm256_mullo_epi16(buf8[i], buf8[i+1]), sampleP);
-            samplePowSum = _mm256_avg_epu16(_mm256_add_epi16(samplePowSum, sampleP), sampleP);
-            ++samplePowCount;
-        }
     }
 }
 
@@ -124,6 +99,7 @@ int main(void) {
     uint8_t arr[(1 << 6) + 27] /*__attribute__((aligned(32))*/;
     uint32_t len = sizeof(arr) / sizeof(*arr);
     uint32_t size = len / (sizeof(char) << LOG2_LENGTH) + 1;
+    uint32_t samplePowCount = 0;
     uint8_t val /*__attribute__((aligned(32))*/;
     uint16_t *temp;
     int j, i;
@@ -135,7 +111,10 @@ int main(void) {
         val = (100 + rand()) % 255;
         arr[i] = val;
         printf("%X, ", val);
+        samplePowSum += val*val;
     }
+    samplePowSum += samplePowSum / (LENGTH*len);
+
     printf("\n\n");
 
     breakit(arr, len, size);
