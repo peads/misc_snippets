@@ -32,10 +32,25 @@ union m256_16 {
     __m256i v;
 };
 
+union rotationRow {
+    float *buf;
+    __m256i row;
+};
+
+struct rotationMatrix {
+    float theta;
+    union rotationRow a1;
+    union rotationRow a2;
+};
+
 static const __m256i zero = {0,0,0,0};
 static const __m256i one = {1,1,1,1};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
+
+float xn90[2] = {1,-1};
+float yn90[2] = {-1, 1};
+static const struct rotationMatrix negPiOverTwo = {3.f*M_PI_2, xn90, yn90};
 
 static __m256i *buf;
 static __m256i *bufx4;
@@ -59,6 +74,23 @@ static inline __m256i convert(__m256i data) {
     return _mm256_cvtepi8_epi16(lo_lane);
 }
 
+static struct rotationMatrix generateRotationMatrix(float theta) {
+
+    struct rotationMatrix result;
+    float cosT = cos(theta);
+    float sinT = sin(theta);
+    float a1[2] = {cosT, -sinT};
+    float a2[2] = {sinT, cosT};
+
+    result.theta = theta;
+    result.a1.buf = a1;
+    result.a2.buf = a2;
+
+    return result;
+}
+
+static void rotateVectors();
+
 static void filterDcBlockRaw(const int len) {
     // TODO figure out to make these a compile-time consts, or at least,
     //  run-time ones, and in either case, without shuffles
@@ -72,7 +104,7 @@ static void filterDcBlockRaw(const int len) {
     __m256i sumIq = {0,0,0,0};
     __m256i avgIq;
 
-    int i, j;
+    int i;
     for (i = 0; i < len; ++i) {
         sumIq = _mm256_add_epi16(sumIq, _mm256_add_epi16(bufx4[i],
                 _mm256_shufflelo_epi16(bufx4[i], _MM_SHUFFLE(2,3,0,1))));
@@ -180,7 +212,7 @@ void dc_block_raw_filter(int m, int n)
         if (i % LENGTH == 0) printf("\n");
         printf("%X, ", bf[i]);
     }
-    printf("\n");
+    printf("\n\n");
 
     dc_avgI = avgI;
     dc_avgQ = avgQ;
@@ -256,4 +288,6 @@ int main(void) {
     printf("%X, %X, %X, %X\n\n", w.buf[0], w.buf[1], w.buf[2], w.buf[3]);
 
     dc_block_raw_filter(k, 4);
+
+    printf("%f:\n\t%f %f\n\t%f %f\n\n",negPiOverTwo.theta, negPiOverTwo.a1.buf[0] , negPiOverTwo.a1.buf[1] , negPiOverTwo.a2.buf[0] , negPiOverTwo.a2.buf[1]);
 }
