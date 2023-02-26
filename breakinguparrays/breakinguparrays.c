@@ -60,54 +60,32 @@ static inline __m256i convert(__m256i data) {
 }
 
 static void filterDcBlockRaw(const int len) {
-
+    // TODO figure out to make these a compile-time consts, or at least,
+    //  run-time ones, and in either case, without shuffles
     const __m256i rdcBlockRVector = _mm256_shufflelo_epi16(_mm256_blend_epi16(one,
         _mm256_set1_epi16(32768/(rdcBlockScalar+1)), 0xa), _MM_SHUFFLE(0,3,0,3));
     const __m256 rdcBlockVector = _mm256_set1_epi16(rdcBlockScalar);
-    const __m256i rdcBlockVect1 = _mm256_shufflelo_epi16(_mm256_blend_epi16(one, // TODO figure out to make this a compile-time const, if not a run-time one without shuffles
+    const __m256i rdcBlockVect1 = _mm256_shufflelo_epi16(_mm256_blend_epi16(one,
         _mm256_set1_epi16(rdcBlockScalar+1), 0xa), _MM_SHUFFLE(3,0,3,0));
-
     const __m256i oneOverLen = _mm256_set1_epi16(16384/len);
 
     __m256i sumIq = {0,0,0,0};
-    __m256i avgIq = {0,0,0,0};
+    __m256i avgIq;
+
     int i, j;
-    union m256_16 tmp, tmp1;
     for (i = 0; i < len; ++i) {
-        tmp.v = _mm256_shufflelo_epi16(bufx4[i], _MM_SHUFFLE(2,3,0,1));
-        tmp1.v = bufx4[i];
         sumIq = _mm256_add_epi16(sumIq, _mm256_add_epi16(bufx4[i],
                 _mm256_shufflelo_epi16(bufx4[i], _MM_SHUFFLE(2,3,0,1))));
-
-        tmp.v = sumIq;
     }
+
     avgIq = _mm256_mulhrs_epi16(sumIq, oneOverLen);
-
-    tmp.v = avgIq;
     avgIq = _mm256_add_epi16(avgIq, _mm256_mullo_epi16(dcAvgIq, rdcBlockVector));
-    tmp.v = avgIq;
     avgIq = _mm256_mulhrs_epi16(avgIq, rdcBlockRVector);
-    tmp.v = avgIq;
     avgIq = _mm256_mullo_epi16(avgIq, rdcBlockVect1);
-    tmp.v = avgIq;
 
-    printf("%X, %X, %X, %X\n", tmp.buf[0], tmp.buf[1], tmp.buf[2], tmp.buf[3]);
-
-    for (i = 0, j = 0; i < len; ++i, j += 4) {
-        if (j % LENGTH == 0) printf("\n");
+    for (i = 0; i < len; ++i) {
         bufx4[i] = _mm256_sub_epi16(bufx4[i], avgIq);
-        tmp.v = bufx4[i];
-        printf("%X, %X, %X, %X, ", tmp.buf[0], tmp.buf[1], tmp.buf[2], tmp.buf[3]);
     }
-    printf("\n");
-
-//    avgI = (avgI + dcAvgI * rdcBlockScalar) / (rdcBlockScalar + 1); // TODO (x + C + D) * 1/(D+1)
-//    avgQ = (avgQ + dcAvgQ * rdcBlockScalar) * (rdcBlockScalar + 1); // similarly here
-//
-//    for (i = 0; i < len; i += 2) {
-//        arr[i] -= avgI;
-//        arr[i+1] -= avgQ;
-//    }
 
     dcAvgIq = avgIq;
 }
@@ -265,14 +243,17 @@ int main(void) {
     }
     printf("\n\n");
 
-//    for (j = 0; j < k; ++j) {
-//        union m256_16 w = {.v = bufx4[j]};
-//        for (i = 0; i < 4; ++i)
-//            printf("%X, ", w.buf[i]);
-//        printf("\n");
-//    }
-//    printf("\n");
-
     filterDcBlockRaw(k);
+
+    for (j = 0, i = 0; j < k; ++j, i+=4) {
+        if (i % LENGTH == 0) printf("\n");
+        union m256_16 w = {.v = bufx4[j]};
+
+        printf("%X, %X, %X, %X, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+    }
+    printf("\n\n");
+    union m256_16 w = {.v = dcAvgIq};
+    printf("%X, %X, %X, %X\n\n", w.buf[0], w.buf[1], w.buf[2], w.buf[3]);
+
     dc_block_raw_filter(k, 4);
 }
