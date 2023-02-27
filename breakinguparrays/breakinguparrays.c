@@ -52,18 +52,16 @@ static const struct rotationMatrix negPiOverTwo = {
             {-1,0, -1,0}
 };
 
+static uint8_t sampleMax = 0;
+static uint8_t arr[(1 << 6) + 27];
+static uint32_t samplePowSum = 0;
+static uint32_t rdcBlockScalar = 9 + 1;
+static uint32_t isCheckADCMax;
+static uint32_t isRdc;
+static uint32_t isOffsetTuning;
 static __m256i *buf;
 static __m256i *bufx4;
 static __m256i dcAvgIq = {0,0,0,0};
-static uint8_t sampleMax = 0;
-static uint32_t samplePowSum = 0;
-//static uint32_t overRun;
-static uint8_t arr[(1 << 6) + 27];
-static int rdcBlockScalar = 9 + 1;
-
-int isCheckADCMax = 1;
-int isRdc = 1;
-int isOffsetTuning = 0;
 
 static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
     return a > b ? a : b;
@@ -73,20 +71,6 @@ static inline __m256i convert(__m256i data) {
     __m128i lo_lane = _mm256_castsi256_si128(data);
     return _mm256_cvtepi8_epi16(lo_lane);
 }
-extern void swapNegateY(short *x, short *y);
-__asm__ (
-#ifdef __APPLE_CC__
-"_swapNegateY: "
-#else
-"swapNegateY: "
-#endif
-    "mov (%rsi), %bx\n\t"
-    "mov (%rdi), %cx\n\t"
-    "mov %bx, (%rdi)\n\t"
-    "neg %cx\n\t"
-    "mov %cx, (%rsi)\n\t"
-    "ret"
-);
 
 /**
  * Takes a 4x4 matrix and applied it to a 4x1 vector.
@@ -160,54 +144,61 @@ void rotateForOffsetTuning(int len) {
     for(i = 0, j = 0; i < len; ++i, j+=4) {
         bufx4[i] = applyRotationMatrix(piOverTwo, bufx4[i]);
     }
-    printf("\n\n");
 }
 
-static uint32_t convertTo16Bit(uint32_t len) {
+static int splitToQuads(uint32_t len) {
 
-    int i,j,k;
-    bufx4 = calloc(len << LOG2_LENGTH, sizeof(__m256i));
+    int i, j, k;
+
+    for (j = 0, k = 0; j < len; ++j) {
+
+        union m256_8 w = {.v = buf[j]};
+
+        for (i = 0; i < LENGTH; i += 4) {
+            bufx4[k++]
+                    = (union m256_16){w.buf16[i], w.buf16[i+1], w.buf16[i+2], w.buf16[i+3]}.v;
+        }
+    }
+
+    return k;
+}
+
+static void findMaxSample(uint32_t len) {
+
+    int i;
     __m256i sm;
+
+    for (i = 0; i < len; ++i) {
+        sm = _mm256_max_epu8(sm, buf[i]);
+    }
+    sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
+}
+
+static uint32_t convertToNx4_16BitMatrix(uint32_t len) {
+
+    int i,depth;
+    bufx4 = calloc(len << LOG2_LENGTH, sizeof(__m256i));
 
     if (isCheckADCMax) {
 
-        for (i = 0; i < len; ++i) {
-            sm = _mm256_max_epu8(sm, buf[i]);
-        }
-        sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
+        findMaxSample(len);
     }
 
     for (i = 0; i < len; i++) {
         buf[i] = convert(_mm256_sub_epi8(buf[i], Z));
     }
 
-    for (j = 0, k = 0; j < len; ++j) { // TODO place this someplace more sensible- or is it sensible here?
-
-        union m256_8 w = {.v = buf[j]};
-
-        for (i = 0; i < LENGTH; i += 4) {
-            bufx4[k++]
-                = (union m256_16){w.buf16[i], w.buf16[i+1], w.buf16[i+2], w.buf16[i+3]}.v;
-        }
-    }
+    depth = splitToQuads(len);
 
     if (isRdc) {
-        filterDcBlockRaw(k);
-
-        for(i = 0, j = 0; i < k; ++i, j+=4) {
-            if (j % LENGTH == 0) printf("\n");
-            union m256_16 w;
-            bufx4[i] = applyRotationMatrix(piOverTwo, bufx4[i]);
-            w.v = bufx4[i];
-            printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
-        }
+        filterDcBlockRaw(depth);
     }
 
     if (!isOffsetTuning) {
-        rotateForOffsetTuning(k);
+        rotateForOffsetTuning(depth);
     }
 
-    return k;
+    return depth;
 }
 
 static void breakit(const uint32_t len, const uint32_t size) {
@@ -231,102 +222,68 @@ static void breakit(const uint32_t len, const uint32_t size) {
     }
 }
 
-void dc_block_raw_filter(int m, int n)
-{
-    /* derived from dc_block_audio_filter,
-        running over the raw I/Q components
-    */
-    short i, j,k, avgI, avgQ;
-    short bf[m*n];
-    int dc_avgI = 0;
-    int dc_avgQ = 0;
-    int64_t sumI = 0;
-    int64_t sumQ = 0;
-
-    for (k = 0, i = 0; i < m; ++i){
-        union m256_16 tmp = {.v = bufx4[i]};
-        for (j = 0; j < n; ++j, ++k) {
-            bf[k] = tmp.buf[j];
-        }
-    }
-
-    for (i = 0; i < m*n; i += 2) {
-        sumI += bf[i];
-        sumQ += bf[i + 1];
-    }
-
-    avgI = sumI / ( m*n / 2 );
-    avgQ = sumQ / ( m*n / 2 );
-    printf("%hX, %hX, %hX, %hX\n", avgI, avgQ,avgI, avgQ);
-    avgI = (avgI + dc_avgI * rdcBlockScalar) / ( rdcBlockScalar + 1 );
-    avgQ = (avgQ + dc_avgQ * rdcBlockScalar) / ( rdcBlockScalar+1 );
-
-    for (i = 0; i < m*n; i += 2) {
-        bf[i] -= avgI;
-        bf[i + 1] -= avgQ;
-    }
-
-    dc_avgI = avgI;
-    dc_avgQ = avgQ;
-}
-
-int main(void) {
+int main(int argc, char **argv) {
 
     srand(time(NULL));
 
-//    __m256i tmp;
     uint32_t len = sizeof(arr) / sizeof(*arr);
     uint32_t size = len / (sizeof(char) << LOG2_LENGTH) + 1;
-//    uint32_t samplePowCount = 0;
-    uint8_t val /*__attribute__((aligned(32))*/;
-//    uint16_t *temp;
+    uint8_t val;
     int j, i;
 
-    assert(size > 0);
-//    arr16 = calloc(len * LENGTH, sizeof(short));
+    if (argc <= 1) {
+
+        isCheckADCMax = 0;
+        isRdc = 0;
+        isOffsetTuning = 1;
+    } else {
+        for (i = 0; i < argc; ++i) {
+            switch (argv[i][0]){
+                case 'r':
+                    isRdc = 1;
+                    break;
+                case 'a':
+                    isCheckADCMax = 1;
+                    break;
+                case 'o':
+                    isOffsetTuning = 1;
+                default:
+                    break;
+            }
+        }
+    }
 
     for (i = 0; i < len; ++i) {
         if (i % LENGTH == 0) printf("\n");
         val = (100 + rand()) % 255;
         arr[i] = val;
-//        arr16[i] = ((int)val - 127) & 0xFFFF;
-        printf("%hX, ", val);
+        printf("%hhX, ", val);
         samplePowSum += val*val;
     }
     printf("\n\n");
 
     samplePowSum += samplePowSum / (LENGTH*len);
 
-
     breakit(len, size);
 
     for (i = 0; i < size; ++i) {
         union m256_8 z = {.v = buf[i]};
         for (j = 0; j < LENGTH; ++j) {
-            printf("%hX, ", z.buf[j]);
+            printf("%hhX, ", z.buf[j]);
         }
         printf("\n");
     }
-    printf("\n");
 
-    int depth = convertTo16Bit(size);
-
-//    for (i = 0; i < size; ++i) {
-//
-//        union m256_8 z = {.v = buf[i]};
-//
-//        for (j = 0; j < LENGTH; ++j) {
-//            printf("%hX, ", z.buf16[j]);
-//        }
-//        printf("\n");
-//    }
-//    printf("\n");
+    int depth = convertToNx4_16BitMatrix(size);
 
     for (j = 0, i = 0; j < depth; ++j, i+=4) {
         if (i % LENGTH == 0) printf("\n");
         union m256_16 w = {.v = bufx4[j]};
 
-        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+        printf("%hX, %hX, %hX, %hX, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
     printf("\n\n");
+
+    free(bufx4);
+    free(buf);
 }

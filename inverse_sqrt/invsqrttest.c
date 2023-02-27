@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <time.h>
 #include <stdlib.h>
-#include <math.h>
 #define TIMING_RUNS 3
 #include "timed_functions.h"
 
@@ -61,27 +60,27 @@ __asm__(
 #ifndef X86
     "ldr r1, %0\n\t"
 
-        "vmov s2, r1\n\t"
-        "vldr s1, %1\n\t"
-        "vmul.F32 s1, s2, s1\n\t"
+    "vmov s2, r1\n\t"
+    "vldr s1, %1\n\t"
+    "vmul.F32 s1, s2, s1\n\t"
 
-        "asr r1, r1, 1\n\t"
-        "ldr r2, =0x5f375a85\n\t"
-        "sub r1, r2, r1\n\t"
-        //"str r1, %0\n\t"
+    "asr r1, r1, 1\n\t"
+    "ldr r2, =0x5f375a85\n\t"
+    "sub r1, r2, r1\n\t"
+    //"str r1, %0\n\t"
 
-        //"vldr s2, %0\n\t"
-        "vmov s2, r1\n\t"
-        "vmul.F32 s3, s2, s2\n\t"   // x^2
-        "vmul.F32 s1, s1, s3\n\t"   // x/2*x^2
-        "vldr s3, %2\n\t"
-        "vsub.F32 s1, s3, s1\n\t"   // 1.5 - x/2*x^2
-        "vmul.F32 s1, s1, s2\n\t"   // x*(1.5 - x/2*x^2)
-        "vmov r1, s1\n\t"
-        "str r1, %0\n\t"
+    //"vldr s2, %0\n\t"
+    "vmov s2, r1\n\t"
+    "vmul.F32 s3, s2, s2\n\t"   // x^2
+    "vmul.F32 s1, s1, s3\n\t"   // x/2*x^2
+    "vldr s3, %2\n\t"
+    "vsub.F32 s1, s3, s1\n\t"   // 1.5 - x/2*x^2
+    "vmul.F32 s1, s1, s2\n\t"   // x*(1.5 - x/2*x^2)
+    "vmov r1, s1\n\t"
+    "str r1, %0\n\t"
     //return sqrtf(x);
 #else
-    "xorps %xmm1, %xmm1\n\t"
+    "vxorps %xmm1, %xmm1, %xmm1\n\t"
     "vucomiss %xmm0, %xmm1\n\t"
     "jae return\n\t"
 
@@ -121,36 +120,6 @@ __asm__(
 );
 
 extern float asmInvSqrtB(float x);
-__asm__(
-#ifdef __clang__
-"_asmInvSqrtB: "
-#else
-"asmInvSqrtB: "
-#endif
-    "vxorps %xmm1, %xmm1, %xmm1\n\t"
-    "vucomiss %xmm0, %xmm1\n\t"
-    "jae return\n\t"
-
-    "vmovd %xmm0, %eax\n\t"// load x0
-    "movl $0x3f000000, %edx\n\t"
-    "vmovd %edx, %xmm1\n\t"           // -1/2 -> xmm1
-    "vmulss %xmm0, %xmm1, %xmm1\n\t" // -x0/2 -> xmm1
-
-    "shr %eax\n\t"
-    "movl $0x5f3759df, %ecx\n\t"
-    "subl %eax, %ecx\n\t"
-    "vmovd %ecx, %xmm0\n\t"           // x = 0x5f3759df - (x0 >> 1) -> xmm1
-
-    "vmulss %xmm0, %xmm0, %xmm2\n\t" // x*x -> xmm2
-    "vmulss %xmm2, %xmm1, %xmm1\n\t" //-x0/2x * x*x -> xmm1
-    "movl $0x3fc00000, %eax\n\t"
-    "vmovd %eax, %xmm2\n\t"           // 3/2 -> xmm2
-    "vsubss %xmm1, %xmm2, %xmm1\n\t" // 3/2 - x0/2 * x*x
-    "vmulss %xmm1, %xmm0, %xmm0\n\t" // x*(3/2 - x/2 * x*x)
-
-"return: "
-    "ret"
-);
 
 extern float fsqrtf(float f);
 

@@ -18,6 +18,7 @@ add_subdirectory(bitshift)
 add_subdirectory(rotate)
 add_subdirectory(fabs)
 add_subdirectory(atan2)
+add_subdirectory(breakinguparrays)
 
 if(UNIX AND NOT APPLE)
     target_link_libraries(argz PUBLIC m)
