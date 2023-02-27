@@ -120,14 +120,16 @@ static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i 
     printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
     temp = _mm256_mullo_epi16(T.a1.v, u); // {0,-1,0,-1}
+    temp = _mm256_add_epi16(temp, _mm256_shufflelo_epi16(temp, _MM_SHUFFLE(2,3,0,1)));
     result.v = temp;
     printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
-    temp1 = _mm256_mullo_epi16(T.a2.v, u); // {1,0,1,0}
+    temp1 = _mm256_mullo_epi16(T.a2.v, u); // {0,-1,0,-1}
+    temp1 = _mm256_add_epi16(temp1, _mm256_shufflelo_epi16(temp1, _MM_SHUFFLE(2,3,0,1)));
     result.v = temp1;
     printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
-    u = _mm256_add_epi16(temp, temp1);
+    u = _mm256_blend_epi16(temp, temp1, 0x99); // 100 10 = 1000 0100 = 84 => 1001 1001 = 99
     result.v = u;
     printf("%hd, %hd, %hd, %hd\n\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
