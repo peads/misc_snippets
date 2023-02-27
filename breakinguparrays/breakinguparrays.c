@@ -32,15 +32,11 @@ union m256_16 {
     __m256i v;
 };
 
-union rotationRow {
-    float *buf;
-    __m256i row;
-};
 
 struct rotationMatrix {
     float theta;
-    union rotationRow a1;
-    union rotationRow a2;
+    const union m256_16 a1;
+    const union m256_16 a2;
 };
 
 static const __m256i zero = {0,0,0,0};
@@ -48,9 +44,23 @@ static const __m256i one = {1,1,1,1};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 
-float xn90[2] = {1,-1};
-float yn90[2] = {-1, 1};
-static const struct rotationMatrix negPiOverTwo = {3.f*M_PI_2, xn90, yn90};
+//static const short xn90[4] = {-1,0,-1,0};//{ 0,-1,0, -1};// //
+//static const short yn90[4] = {0,1,0,1};//{1, 0 ,1, 0};//;//;
+
+static const struct rotationMatrix piOverTwo = {
+        M_PI_2,
+        {0,-1, 0,-1},//0,0x0000FFFF},//,
+        {1,0, 1,0}//0x00000001,0},//,
+};
+
+//{{0, 1}, {-1, 0}}
+static const struct rotationMatrix negPiOverTwo = {
+        3.f*M_PI_2,
+        {0,1, 0,1},//0,0x0000FFFF},//,
+        {-1,0, -1,0}//0x00000001,0},//,
+//        {0,0x00000001},//,0,1},
+//        {0x0000FFFF,0},//,-1,0}
+};
 
 static __m256i *buf;
 static __m256i *bufx4;
@@ -73,23 +83,84 @@ static inline __m256i convert(__m256i data) {
     __m128i lo_lane = _mm256_castsi256_si128(data);
     return _mm256_cvtepi8_epi16(lo_lane);
 }
+extern void swapNegateY(short *x, short *y);
+__asm__ (
+#ifdef __APPLE_CC__
+"_swapNegateY: "
+#else
+"swapNegateY: "
+#endif
+    "mov (%rsi), %bx\n\t"
+    "mov (%rdi), %cx\n\t"
+    "mov %bx, (%rdi)\n\t"
+    "neg %cx\n\t"
+    "mov %cx, (%rsi)\n\t"
+    "ret"
+);
+static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i uu) {
+
+//    union matrix {
+//        const int16_t *buf;
+//        const __m256i v;
+//    };
+
+    __m256i temp, temp1;
+    __m256i u = uu;//_mm256_unpacklo_ps(uu, zero);
+//    union matrix Ta1 = {T.a1};
+//    union matrix Ta2 = {T.a2};
+    union m256_16 result = {.v = uu};
+//    u = _mm256_shufflelo_epi16(u, _MM_SHUFFLE(0,1,2,3));//1,3,0,2));
+
+    printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
+
+    result.v = u;
+    printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
+
+    temp = _mm256_mullo_epi16(T.a1.v, u); // {0,-1,0,-1}
+    result.v = temp;
+    printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
+
+    temp1 = _mm256_mullo_epi16(T.a2.v, u); // {1,0,1,0}
+    result.v = temp1;
+    printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
+
+    u = _mm256_add_epi16(temp, temp1);
+    result.v = u;
+    printf("%hd, %hd, %hd, %hd\n\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
+
+
+
+//
+//    temp = _mm256_sign_epi16(u, T1.v);
+////    result.v = _mm256_hadd_epi32(result.v, temp);
+//    temp1 = _mm256_sign_epi16(u, T1.v);
+//    result.v = temp1;
+////    result.v = _mm256_hadd_epi32(result.v, temp);
+////    rows[0] = _mm256_add_epi16(rows[0], rows[1]);
+////    result.v  = rows[0];
+//    printf("%hd, %hd, %hd, %hd\n\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
+
+//    swapNegateY(&result.buf[0], &result.buf[1]);
+//    swapNegateY(&result.buf[2], &result.buf[3]);
+
+    return result.v;
+
+//    printf("%hd, %hd, %hd, %hd\n\n", result.buf[0],result.buf[1], result.buf[2], result.buf[3]);
+}
+
 
 static struct rotationMatrix generateRotationMatrix(float theta) {
 
     struct rotationMatrix result;
-    float cosT = cos(theta);
-    float sinT = sin(theta);
-    float a1[2] = {cosT, -sinT};
-    float a2[2] = {sinT, cosT};
+    short cosT = cos(theta) * (1 << 14);
+    short sinT = sin(theta) * (1 << 14);
+    short a1[2] = {cosT, -sinT};
+    short a2[2] = {sinT, cosT};
 
     result.theta = theta;
-    result.a1.buf = a1;
-    result.a2.buf = a2;
 
     return result;
 }
-
-static void rotateVectors();
 
 static void filterDcBlockRaw(const int len) {
     // TODO figure out to make these a compile-time consts, or at least,
@@ -199,7 +270,7 @@ void dc_block_raw_filter(int m, int n)
 
     avgI = sumI / ( m*n / 2 );
     avgQ = sumQ / ( m*n / 2 );
-    printf("%X, %X, %X, %X\n", avgI, avgQ,avgI, avgQ);
+    printf("%hX, %hX, %hX, %hX\n", avgI, avgQ,avgI, avgQ);
     avgI = (avgI + dc_avgI * rdcBlockScalar) / ( rdcBlockScalar + 1 );
     avgQ = (avgQ + dc_avgQ * rdcBlockScalar) / ( rdcBlockScalar+1 );
 
@@ -209,10 +280,10 @@ void dc_block_raw_filter(int m, int n)
     }
 
     for (i = 0; i < m*n; ++i){
-        if (i % LENGTH == 0) printf("\n");
-        printf("%X, ", bf[i]);
+//        if (i % LENGTH == 0) printf("\n");
+//        printf("%hX, ", bf[i]);
     }
-    printf("\n\n");
+//    printf("\n\n");
 
     dc_avgI = avgI;
     dc_avgQ = avgQ;
@@ -238,7 +309,7 @@ int main(void) {
         val = (100 + rand()) % 255;
         arr[i] = val;
 //        arr16[i] = ((int)val - 127) & 0xFFFF;
-        printf("%X, ", val);
+        printf("%hX, ", val);
         samplePowSum += val*val;
     }
     samplePowSum += samplePowSum / (LENGTH*len);
@@ -250,7 +321,7 @@ int main(void) {
     for (i = 0; i < size; ++i) {
         union m256_8 z = {.v = buf[i]};
         for (j = 0; j < LENGTH; ++j) {
-            printf("%X, ", z.buf[j]);
+            printf("%hX, ", z.buf[j]);
         }
         printf("\n");
     }
@@ -263,7 +334,7 @@ int main(void) {
         union m256_8 z = {.v = buf[i]};
 
         for (j = 0; j < LENGTH; ++j) {
-            printf("%X, ", z.buf16[j]);
+            printf("%hX, ", z.buf16[j]);
         }
         printf("\n");
     }
@@ -271,7 +342,7 @@ int main(void) {
 
     for (i=0; i<(int)len; i++) {
         if (i % LENGTH == 0) printf("\n");
-        printf("%X, ",  (short)((short)arr[i]) - 127);
+        printf("%hX, ",  (short)((short)arr[i]) - 127);
     }
     printf("\n\n");
 
@@ -281,13 +352,22 @@ int main(void) {
         if (i % LENGTH == 0) printf("\n");
         union m256_16 w = {.v = bufx4[j]};
 
-        printf("%X, %X, %X, %X, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+        printf("%hX, %hX, %hX, %hX, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
     printf("\n\n");
     union m256_16 w = {.v = dcAvgIq};
-    printf("%X, %X, %X, %X\n\n", w.buf[0], w.buf[1], w.buf[2], w.buf[3]);
+    printf("%hX, %hX, %hX, %hX\n", w.buf[0], w.buf[1], w.buf[2], w.buf[3]);
 
     dc_block_raw_filter(k, 4);
 
-    printf("%f:\n\t%f %f\n\t%f %f\n\n",negPiOverTwo.theta, negPiOverTwo.a1.buf[0] , negPiOverTwo.a1.buf[1] , negPiOverTwo.a2.buf[0] , negPiOverTwo.a2.buf[1]);
+//    printf("%f:\n\t%hd %hd\n\t%hd %hd\n\n",negPiOverTwo.theta, negPiOverTwo.a1.buf[0] , negPiOverTwo.a1.buf[1] , negPiOverTwo.a2.buf[0] , negPiOverTwo.a2.buf[1]);
+
+    for(i = 0, j = 0; i < k; ++i, j+=4) {
+        if (j == 0) printf("\n");
+        union m256_16 w;
+        bufx4[i] = applyRotationMatrix(negPiOverTwo, bufx4[i]);
+        w.v = bufx4[i];
+//        printf("%hX, %hX, %hX, %hX, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+    }
+    printf("\n\n");
 }
