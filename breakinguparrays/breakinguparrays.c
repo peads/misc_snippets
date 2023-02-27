@@ -49,15 +49,18 @@ static const __m256i Z // all 127s
 
 static const struct rotationMatrix piOverTwo = {
         M_PI_2,
-        {0,-1, 0,-1},//0,0x0000FFFF},//,
-        {1,0, 1,0}//0x00000001,0},//,
+        {0,-1,0,-1},
+        {1,0,1,0}
+        //{0,-1, 0,-1},//0,0x0000FFFF},//,
+        //{1,0, 1,0}//0x00000001,0},//,
 };
 
 //{{0, 1}, {-1, 0}}
 static const struct rotationMatrix negPiOverTwo = {
         3.f*M_PI_2,
+
         {0,1, 0,1},//0,0x0000FFFF},//,
-        {-1,0, -1,0}//0x00000001,0},//,
+            {-1,0, -1,0}//0x00000001,0},//,
 //        {0,0x00000001},//,0,1},
 //        {0x0000FFFF,0},//,-1,0}
 };
@@ -365,7 +368,7 @@ int main(void) {
     for(i = 0, j = 0; i < k; ++i, j+=4) {
         if (j == 0) printf("\n");
         union m256_16 w;
-        bufx4[i] = applyRotationMatrix(negPiOverTwo, bufx4[i]);
+        bufx4[i] = applyRotationMatrix(piOverTwo, bufx4[i]);
         w.v = bufx4[i];
 //        printf("%hX, %hX, %hX, %hX, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
