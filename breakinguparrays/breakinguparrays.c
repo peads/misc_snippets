@@ -100,57 +100,27 @@ __asm__ (
     "mov %cx, (%rsi)\n\t"
     "ret"
 );
-static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i uu) {
-
-//    union matrix {
-//        const int16_t *buf;
-//        const __m256i v;
-//    };
+static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i u) {
 
     __m256i temp, temp1;
-    __m256i u = uu;//_mm256_unpacklo_ps(uu, zero);
-//    union matrix Ta1 = {T.a1};
-//    union matrix Ta2 = {T.a2};
-    union m256_16 result = {.v = uu};
-//    u = _mm256_shufflelo_epi16(u, _MM_SHUFFLE(0,1,2,3));//1,3,0,2));
-
-    printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
+    union m256_16 result;
 
     result.v = u;
     printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
     temp = _mm256_mullo_epi16(T.a1.v, u); // {0,-1,0,-1}
     temp = _mm256_add_epi16(temp, _mm256_shufflelo_epi16(temp, _MM_SHUFFLE(2,3,0,1)));
-    result.v = temp;
-    printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
     temp1 = _mm256_mullo_epi16(T.a2.v, u); // {0,-1,0,-1}
     temp1 = _mm256_add_epi16(temp1, _mm256_shufflelo_epi16(temp1, _MM_SHUFFLE(2,3,0,1)));
-    result.v = temp1;
-    printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
-    u = _mm256_blend_epi16(temp, temp1, 0x99); // 100 10 = 1000 0100 = 84 => 1001 1001 = 99
-    result.v = u;
+    result.v = _mm256_blend_epi16(temp, temp1, 0xA); // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
     printf("%hd, %hd, %hd, %hd\n\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
-
-
-
-//
-//    temp = _mm256_sign_epi16(u, T1.v);
-////    result.v = _mm256_hadd_epi32(result.v, temp);
-//    temp1 = _mm256_sign_epi16(u, T1.v);
-//    result.v = temp1;
-////    result.v = _mm256_hadd_epi32(result.v, temp);
-////    rows[0] = _mm256_add_epi16(rows[0], rows[1]);
-////    result.v  = rows[0];
-//    printf("%hd, %hd, %hd, %hd\n\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
 //    swapNegateY(&result.buf[0], &result.buf[1]);
 //    swapNegateY(&result.buf[2], &result.buf[3]);
 
     return result.v;
-
-//    printf("%hd, %hd, %hd, %hd\n\n", result.buf[0],result.buf[1], result.buf[2], result.buf[3]);
 }
 
 
