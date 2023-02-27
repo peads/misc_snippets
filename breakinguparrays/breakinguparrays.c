@@ -32,9 +32,7 @@ union m256_16 {
     __m256i v;
 };
 
-
 struct rotationMatrix {
-    float theta;
     const union m256_16 a1;
     const union m256_16 a2;
 };
@@ -44,25 +42,14 @@ static const __m256i one = {1,1,1,1};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 
-//static const short xn90[4] = {-1,0,-1,0};//{ 0,-1,0, -1};// //
-//static const short yn90[4] = {0,1,0,1};//{1, 0 ,1, 0};//;//;
-
 static const struct rotationMatrix piOverTwo = {
-        M_PI_2,
         {0,-1,0,-1},
         {1,0,1,0}
-        //{0,-1, 0,-1},//0,0x0000FFFF},//,
-        //{1,0, 1,0}//0x00000001,0},//,
 };
 
-//{{0, 1}, {-1, 0}}
 static const struct rotationMatrix negPiOverTwo = {
-        3.f*M_PI_2,
-
-        {0,1, 0,1},//0,0x0000FFFF},//,
-            {-1,0, -1,0}//0x00000001,0},//,
-//        {0,0x00000001},//,0,1},
-//        {0x0000FFFF,0},//,-1,0}
+        {0,1, 0,1},
+            {-1,0, -1,0}
 };
 
 static __m256i *buf;
@@ -70,13 +57,13 @@ static __m256i *bufx4;
 static __m256i dcAvgIq = {0,0,0,0};
 static uint8_t sampleMax = 0;
 static uint32_t samplePowSum = 0;
-static uint32_t overRun;
+//static uint32_t overRun;
 static uint8_t arr[(1 << 6) + 27];
 static int rdcBlockScalar = 9 + 1;
 
 int isCheckADCMax = 1;
 int isRdc = 1;
-int isOffsetTuning = 1;
+int isOffsetTuning = 0;
 
 static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
     return a > b ? a : b;
@@ -134,8 +121,6 @@ static struct rotationMatrix generateRotationMatrix(float theta) {
     short a1[2] = {cosT, -sinT};
     short a2[2] = {sinT, cosT};
 
-    result.theta = theta;
-
     return result;
 }
 
@@ -170,6 +155,14 @@ static void filterDcBlockRaw(const int len) {
     dcAvgIq = avgIq;
 }
 
+void rotateForOffsetTuning(int len) {
+    int i, j;
+    for(i = 0, j = 0; i < len; ++i, j+=4) {
+        bufx4[i] = applyRotationMatrix(piOverTwo, bufx4[i]);
+    }
+    printf("\n\n");
+}
+
 static uint32_t convertTo16Bit(uint32_t len) {
 
     int i,j,k;
@@ -198,6 +191,22 @@ static uint32_t convertTo16Bit(uint32_t len) {
         }
     }
 
+    if (isRdc) {
+        filterDcBlockRaw(k);
+
+        for(i = 0, j = 0; i < k; ++i, j+=4) {
+            if (j % LENGTH == 0) printf("\n");
+            union m256_16 w;
+            bufx4[i] = applyRotationMatrix(piOverTwo, bufx4[i]);
+            w.v = bufx4[i];
+            printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+        }
+    }
+
+    if (!isOffsetTuning) {
+        rotateForOffsetTuning(k);
+    }
+
     return k;
 }
 
@@ -211,7 +220,7 @@ static void breakit(const uint32_t len, const uint32_t size) {
     uint32_t chunk = step * unit;
     union m256_8 z;
 
-    overRun = len - (size-1)*(step);
+//    overRun = len - (size-1)*(step);
     buf = calloc(size * chunk, sizeof(__m256i));
 
     for (i = 0; leftToProcess > 0; i += step, ++j) {
@@ -221,6 +230,7 @@ static void breakit(const uint32_t len, const uint32_t size) {
         leftToProcess -= step;
     }
 }
+
 void dc_block_raw_filter(int m, int n)
 {
     /* derived from dc_block_audio_filter,
@@ -255,12 +265,6 @@ void dc_block_raw_filter(int m, int n)
         bf[i] -= avgI;
         bf[i + 1] -= avgQ;
     }
-
-    for (i = 0; i < m*n; ++i){
-//        if (i % LENGTH == 0) printf("\n");
-//        printf("%hX, ", bf[i]);
-    }
-//    printf("\n\n");
 
     dc_avgI = avgI;
     dc_avgQ = avgQ;
@@ -305,46 +309,23 @@ int main(void) {
     }
     printf("\n");
 
-    int k = convertTo16Bit(size);
+    int depth = convertTo16Bit(size);
 
-    for (i = 0; i < size; ++i) {
-
-        union m256_8 z = {.v = buf[i]};
-
-        for (j = 0; j < LENGTH; ++j) {
-            printf("%hX, ", z.buf16[j]);
-        }
-        printf("\n");
-    }
-    printf("\n");
-
-//    for (i=0; i<(int)len; i++) {
-//        if (i % LENGTH == 0) printf("\n");
-//        printf("%hX, ",  (short)((short)arr[i]) - 127);
+//    for (i = 0; i < size; ++i) {
+//
+//        union m256_8 z = {.v = buf[i]};
+//
+//        for (j = 0; j < LENGTH; ++j) {
+//            printf("%hX, ", z.buf16[j]);
+//        }
+//        printf("\n");
 //    }
-//    printf("\n\n");
+//    printf("\n");
 
-    filterDcBlockRaw(k);
-
-    for (j = 0, i = 0; j < k; ++j, i+=4) {
+    for (j = 0, i = 0; j < depth; ++j, i+=4) {
         if (i % LENGTH == 0) printf("\n");
         union m256_16 w = {.v = bufx4[j]};
 
-        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
-    }
-    printf("\n\n");
-//    union m256_16 w = {.v = dcAvgIq};
-//    printf("%hX, %hX, %hX, %hX\n", w.buf[0], w.buf[1], w.buf[2], w.buf[3]);
-
-//    dc_block_raw_filter(k, 4);
-
-//    printf("%f:\n\t%hd %hd\n\t%hd %hd\n\n",negPiOverTwo.theta, negPiOverTwo.a1.buf[0] , negPiOverTwo.a1.buf[1] , negPiOverTwo.a2.buf[0] , negPiOverTwo.a2.buf[1]);
-
-    for(i = 0, j = 0; i < k; ++i, j+=4) {
-        if (j % LENGTH == 0) printf("\n");
-        union m256_16 w;
-        bufx4[i] = applyRotationMatrix(piOverTwo, bufx4[i]);
-        w.v = bufx4[i];
         printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
     printf("\n\n");
