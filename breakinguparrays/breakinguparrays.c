@@ -111,13 +111,13 @@ static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i 
 
     printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
-    temp = _mm256_mullo_epi16(T.a1.v, u); // {0,-1,0,-1}
-    temp = _mm256_add_epi16(temp, _mm256_shufflelo_epi16(temp, _MM_SHUFFLE(2,3,0,1)));
+    temp = _mm256_mullo_epi16(T.a1.v, u);
+    temp1 = _mm256_mullo_epi16(T.a2.v, u);
+    result.v = _mm256_blend_epi16(
+            _mm256_add_epi16(temp, _mm256_shufflelo_epi16(temp, _MM_SHUFFLE(2,3,0,1))),
+            _mm256_add_epi16(temp1, _mm256_shufflelo_epi16(temp1, _MM_SHUFFLE(2,3,0,1))),
+            0xA); // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
 
-    temp1 = _mm256_mullo_epi16(T.a2.v, u); // {0,-1,0,-1}
-    temp1 = _mm256_add_epi16(temp1, _mm256_shufflelo_epi16(temp1, _MM_SHUFFLE(2,3,0,1)));
-
-    result.v = _mm256_blend_epi16(temp, temp1, 0xA); // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
     printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
 
     printf("%hd, %hd, %hd, %hd\n", ar, aj, br, bj);
