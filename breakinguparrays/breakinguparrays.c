@@ -100,32 +100,29 @@ __asm__ (
     "mov %cx, (%rsi)\n\t"
     "ret"
 );
+
+/**
+ * Takes a 4x4 matrix and applied it to a 4x1 vector.
+ * Here, it is used to apply the same rotation matrix to
+ * two complex numbers. i.e., for the the matrix
+ * {{a,b}, {c,d}} and two vectors {u1,u2} and {v1,v2}
+ * concatenated, s.t. {u1,u2,v1,v2}
+ *  -> {a*u1 + c*u1, b*u2 + d*u2, ... , b*v2 + d*v2}
+ */
 static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i u) {
 
     __m256i temp, temp1;
-    union m256_16 result = {.v = u};
-    short ar = result.buf[0];
-    short aj = result.buf[1];
-    short br = result.buf[2];
-    short bj = result.buf[3];
 
-    printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
-
-    temp = _mm256_mullo_epi16(T.a1.v, u);
-    temp1 = _mm256_mullo_epi16(T.a2.v, u);
-    result.v = _mm256_blend_epi16(
-            _mm256_add_epi16(temp, _mm256_shufflelo_epi16(temp, _MM_SHUFFLE(2,3,0,1))),
-            _mm256_add_epi16(temp1, _mm256_shufflelo_epi16(temp1, _MM_SHUFFLE(2,3,0,1))),
-            0xA); // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
-
-    printf("%hd, %hd, %hd, %hd\n", result.buf[0], result.buf[1], result.buf[2], result.buf[3]);
-
-    printf("%hd, %hd, %hd, %hd\n", ar, aj, br, bj);
-    swapNegateY(&aj, &ar);
-    swapNegateY(&bj, &br);
-    printf("%hd, %hd, %hd, %hd\n\n", ar, aj, br, bj);
-
-    return result.v;
+    temp = _mm256_mullo_epi16(T.a1.v, u);   // u1*a11, u2*a12, u3*a13, ...
+    temp1 = _mm256_mullo_epi16(T.a2.v, u);  // u1*a21, u2*a22, ...
+    return _mm256_blend_epi16(
+            _mm256_add_epi16(temp,             // u1*a11 + u2*a12, ... , u3*a13 + u4*a14
+                _mm256_shufflelo_epi16(temp, _MM_SHUFFLE(2,3,0,1))),
+            _mm256_add_epi16(temp1,            // u1*a21 + u2*a22, ... , u3*a23 + u4*a24
+                _mm256_shufflelo_epi16(temp1, _MM_SHUFFLE(2,3,0,1))),
+            0xA);                                 // u1*a11 + u2*a12, u1*a21 + u2*a22,
+                                                  // u3*a13 + u4*a14, u3*a23 + u4*a24
+    // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
 }
 
 
@@ -292,9 +289,10 @@ int main(void) {
         printf("%hX, ", val);
         samplePowSum += val*val;
     }
+    printf("\n\n");
+
     samplePowSum += samplePowSum / (LENGTH*len);
 
-    printf("\n\n");
 
     breakit(len, size);
 
@@ -320,11 +318,11 @@ int main(void) {
     }
     printf("\n");
 
-    for (i=0; i<(int)len; i++) {
-        if (i % LENGTH == 0) printf("\n");
-        printf("%hX, ",  (short)((short)arr[i]) - 127);
-    }
-    printf("\n\n");
+//    for (i=0; i<(int)len; i++) {
+//        if (i % LENGTH == 0) printf("\n");
+//        printf("%hX, ",  (short)((short)arr[i]) - 127);
+//    }
+//    printf("\n\n");
 
     filterDcBlockRaw(k);
 
@@ -332,22 +330,22 @@ int main(void) {
         if (i % LENGTH == 0) printf("\n");
         union m256_16 w = {.v = bufx4[j]};
 
-        printf("%hX, %hX, %hX, %hX, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
     printf("\n\n");
-    union m256_16 w = {.v = dcAvgIq};
-    printf("%hX, %hX, %hX, %hX\n", w.buf[0], w.buf[1], w.buf[2], w.buf[3]);
+//    union m256_16 w = {.v = dcAvgIq};
+//    printf("%hX, %hX, %hX, %hX\n", w.buf[0], w.buf[1], w.buf[2], w.buf[3]);
 
-    dc_block_raw_filter(k, 4);
+//    dc_block_raw_filter(k, 4);
 
 //    printf("%f:\n\t%hd %hd\n\t%hd %hd\n\n",negPiOverTwo.theta, negPiOverTwo.a1.buf[0] , negPiOverTwo.a1.buf[1] , negPiOverTwo.a2.buf[0] , negPiOverTwo.a2.buf[1]);
 
     for(i = 0, j = 0; i < k; ++i, j+=4) {
-        if (j == 0) printf("\n");
+        if (j % LENGTH == 0) printf("\n");
         union m256_16 w;
         bufx4[i] = applyRotationMatrix(piOverTwo, bufx4[i]);
         w.v = bufx4[i];
-//        printf("%hX, %hX, %hX, %hX, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
     printf("\n\n");
 }
