@@ -59,10 +59,11 @@ static uint32_t rdcBlockScalar = 9 + 1;
 static uint32_t isCheckADCMax;
 static uint32_t isRdc;
 static uint32_t isOffsetTuning;
+static uint32_t downsample;
 static __m256i *buf;
 static __m256i *bufx4;
+static __m256i *lowPassed;
 static __m256i dcAvgIq = {0,0,0,0};
-
 static __m256i rdcBlockVector;
 static __m256i rdcBlockRVector;
 static __m256i rdcBlockVect1;
@@ -104,8 +105,8 @@ static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i 
 
 static struct rotationMatrix generateRotationMatrix(float theta, float phi) {
 
-    uint16_t cosT = cos(theta) * (1 << 13);
-    uint16_t sinT = sin(phi) * (1 << 13);
+    int16_t cosT = cos(theta) * (1 << 13);
+    int16_t sinT = sin(phi) * (1 << 13);
     struct rotationMatrix result = {
             .a1 = {cosT, -sinT, cosT, -sinT},
             .a2 = {sinT, cosT, sinT, cosT}
@@ -224,6 +225,58 @@ static void breakit(const uint32_t len, const uint32_t size) {
     }
 }
 
+int16_t *lowpassed;
+int16_t *lowpassed2;
+
+void low_pass(int len)
+/* simple square window FIR */
+{
+    union m256_16 temp;
+    int16_t now_r, now_j, prev_index;
+    int i, k, j;
+
+    now_j = now_r = prev_index = 0;
+
+    for (k = 0, j = 0; j < len; ++j) {
+
+        prev_index = 0;
+        now_r = 0;
+        now_j = 0;
+        i = 0;
+        temp.v = bufx4[j];
+
+        lowpassed2[k] = temp.buf[0] + temp.buf[2];
+        lowpassed2[k+1] = temp.buf[1] + temp.buf[3];
+
+        while (i < 4) {
+            now_r += temp.buf[i];
+            now_j += temp.buf[i + 1];
+            i += 2;
+            prev_index++;
+            if (prev_index < downsample) {
+                continue;
+            }
+            lowpassed[k] = now_r; /* * d->output_scale; */
+            lowpassed[k + 1] = now_j; /* * d->output_scale; */
+
+            k += 2;
+        }
+
+    }
+}
+
+void applyLowPass(int len) {
+    int i;
+
+    lowPassed = calloc(len << 1, sizeof(__m256i));
+
+    for (i = 0; i < len; ++i) {
+        lowPassed[i]
+            = _mm256_add_epi16(bufx4[i],
+               _mm256_shufflelo_epi16(bufx4[i], _MM_SHUFFLE(1,0,3,2)));
+    }
+}
+
 void initializeEnv() {
 
     const int16_t scalarP1 = rdcBlockScalar + 1;
@@ -245,6 +298,7 @@ int main(int argc, char **argv) {
         isCheckADCMax = 0;
         isRdc = 0;
         isOffsetTuning = 0;
+        downsample = 2;
     } else {
         for (i = 0; i < argc; ++i) {
             switch (argv[i][0]){
@@ -269,7 +323,7 @@ int main(int argc, char **argv) {
         val = (100 + rand()) % 255;
         arr[i] = val;
         printf("%hhd, ", val);
-        samplePowSum += val*val;
+        samplePowSum += val*val; // TODO implement this with data parallelism
     }
     printf("\n\n");
 
@@ -293,8 +347,32 @@ int main(int argc, char **argv) {
 
         printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
-    printf("\n\n");
+    printf("\n");
 
+    lowpassed = calloc(depth << 1, sizeof(int16_t));
+    lowpassed2 = calloc(depth << 1, sizeof(int16_t));
+    low_pass(depth);
+    
+    for (i = 0; i < depth << 1; i+=4) {
+        if (i % (LENGTH) == 0) printf("\n");
+        printf("%hd, %hd, %hd, %hd, ",  lowpassed[i],  lowpassed[i+1], lowpassed[i+2] , lowpassed[i+3]);
+    }
+    printf("\n");
+
+    for (i = 0; i < depth << 1; i+=4) {
+        if (i % (LENGTH) == 0) printf("\n");
+        printf("%hd, %hd, %hd, %hd, ",  lowpassed2[i],  lowpassed2[i+1], lowpassed2[i+2] , lowpassed2[i+3]);
+    }
+    printf("\n");
+
+    applyLowPass(depth);
+    for (j = 0, i = 0; j < depth; ++j, i+=4) {
+        if (j % (LENGTH>>1) == 0) printf("\n");
+        union m256_16 w = {.v = lowPassed[j]};
+
+        printf("%hd, %hd, ", w.buf[0],w.buf[1]);
+    }
+    printf("\n");
     free(bufx4);
     free(buf);
 }
