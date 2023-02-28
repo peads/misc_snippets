@@ -85,7 +85,8 @@ static inline __m256i convert(__m256i data) {
  *  -> {a*u1 + c*u1, b*u2 + d*u2, ... , b*v2 + d*v2}
  */
 static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i u) {
-
+    // TODO integrate abliity to use fixed point encoded values from the
+    // generate function (scaling factor: 2^13)
     __m256i temp, temp1;
 
     temp = _mm256_mullo_epi16(T.a1.v, u);   // u1*a11, u2*a12, u3*a13, ...
@@ -101,13 +102,14 @@ static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i 
 }
 
 
-static struct rotationMatrix generateRotationMatrix(float theta) {
+static struct rotationMatrix generateRotationMatrix(float theta, float phi) {
 
-    struct rotationMatrix result;
-    short cosT = cos(theta) * (1 << 14);
-    short sinT = sin(theta) * (1 << 14);
-    short a1[2] = {cosT, -sinT};
-    short a2[2] = {sinT, cosT};
+    uint16_t cosT = cos(theta) * (1 << 13);
+    uint16_t sinT = sin(phi) * (1 << 13);
+    struct rotationMatrix result = {
+            .a1 = {cosT, -sinT, cosT, -sinT},
+            .a2 = {sinT, cosT, sinT, cosT}
+    };
 
     return result;
 }
@@ -212,6 +214,7 @@ static void breakit(const uint32_t len, const uint32_t size) {
 
 //    overRun = len - (size-1)*(step);
     buf = calloc(size * chunk, sizeof(__m256i));
+//    memset(buf, 0, size * chunk * sizeof(__m256i));
 
     for (i = 0; leftToProcess > 0; i += step, ++j) {
 
@@ -241,7 +244,7 @@ int main(int argc, char **argv) {
     if (argc <= 1) {
         isCheckADCMax = 0;
         isRdc = 0;
-        isOffsetTuning = 1;
+        isOffsetTuning = 0;
     } else {
         for (i = 0; i < argc; ++i) {
             switch (argv[i][0]){
