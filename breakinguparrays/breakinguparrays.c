@@ -63,6 +63,10 @@ static __m256i *buf;
 static __m256i *bufx4;
 static __m256i dcAvgIq = {0,0,0,0};
 
+static __m256i rdcBlockVector;
+static __m256i rdcBlockRVector;
+static __m256i rdcBlockVect1;
+
 static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
     return a > b ? a : b;
 }
@@ -109,13 +113,7 @@ static struct rotationMatrix generateRotationMatrix(float theta) {
 }
 
 static void filterDcBlockRaw(const int len) {
-    // TODO figure out to make these a compile-time consts, or at least,
-    //  run-time ones, and in either case, without shuffles
-    const __m256i rdcBlockRVector = _mm256_shufflelo_epi16(_mm256_blend_epi16(one,
-        _mm256_set1_epi16(32768/(rdcBlockScalar+1)), 0xa), _MM_SHUFFLE(0,3,0,3));
-    const __m256 rdcBlockVector = _mm256_set1_epi16(rdcBlockScalar);
-    const __m256i rdcBlockVect1 = _mm256_shufflelo_epi16(_mm256_blend_epi16(one,
-        _mm256_set1_epi16(rdcBlockScalar+1), 0xa), _MM_SHUFFLE(3,0,3,0));
+
     const __m256i oneOverLen = _mm256_set1_epi16(16384/len);
 
     __m256i sumIq = {0,0,0,0};
@@ -140,6 +138,7 @@ static void filterDcBlockRaw(const int len) {
 }
 
 void rotateForOffsetTuning(int len) {
+
     int i, j;
     for(i = 0, j = 0; i < len; ++i, j+=4) {
         bufx4[i] = applyRotationMatrix(piOverTwo, bufx4[i]);
@@ -222,6 +221,14 @@ static void breakit(const uint32_t len, const uint32_t size) {
     }
 }
 
+void initializeEnv() {
+
+    const int16_t scalarP1 = rdcBlockScalar + 1;
+    rdcBlockVector = _mm256_set1_epi16(rdcBlockScalar);
+    rdcBlockVect1 = (union m256_16){scalarP1, 0x1, scalarP1, 0x1}.v;
+    rdcBlockRVector = (union m256_16){32768/scalarP1, 0x1, 32768/scalarP1, 0x1}.v;
+}
+
 int main(int argc, char **argv) {
 
     srand(time(NULL));
@@ -232,7 +239,6 @@ int main(int argc, char **argv) {
     int j, i;
 
     if (argc <= 1) {
-
         isCheckADCMax = 0;
         isRdc = 0;
         isOffsetTuning = 1;
@@ -253,11 +259,13 @@ int main(int argc, char **argv) {
         }
     }
 
+    initializeEnv();
+
     for (i = 0; i < len; ++i) {
         if (i % LENGTH == 0) printf("\n");
         val = (100 + rand()) % 255;
         arr[i] = val;
-        printf("%hhX, ", val);
+        printf("%hhd, ", val);
         samplePowSum += val*val;
     }
     printf("\n\n");
@@ -269,7 +277,7 @@ int main(int argc, char **argv) {
     for (i = 0; i < size; ++i) {
         union m256_8 z = {.v = buf[i]};
         for (j = 0; j < LENGTH; ++j) {
-            printf("%hhX, ", z.buf[j]);
+            printf("%hhd, ", z.buf[j]);
         }
         printf("\n");
     }
@@ -280,7 +288,7 @@ int main(int argc, char **argv) {
         if (i % LENGTH == 0) printf("\n");
         union m256_16 w = {.v = bufx4[j]};
 
-        printf("%hX, %hX, %hX, %hX, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
     printf("\n\n");
 
