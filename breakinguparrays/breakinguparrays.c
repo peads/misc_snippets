@@ -14,12 +14,19 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
+#include <stdio.h>
 #include <immintrin.h>
 #include <string.h>
-#include "timed_functions.h"
+#include <math.h>
+#include <time.h>
 
+// sizeof(uint8_t)
+#define INPUT_ELEMENT_BYTES 1
 #define LOG2_LENGTH 4
 #define LENGTH (1 << LOG2_LENGTH)
+#define DEFAULT_BUF_SIZE		32768
+#define MAXIMUM_BUF_SIZE		(DEFAULT_BUF_SIZE << LOG2_LENGTH)
+// therefore, max depth is  MAXIMUM_BUF_SIZE >> 2
 
 union m256_8 {
     uint8_t buf[LENGTH];
@@ -37,28 +44,29 @@ struct rotationMatrix {
     const union m256_16 a2;
 };
 
-static const __m256i zero = {0,0,0,0};
-static const __m256i one = {1,1,1,1};
+static const uint32_t VECTOR_WIDTH = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
+static const __m256i ZERO = {0, 0, 0, 0};
+static const __m256i ONE = {1, 1, 1, 1};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 
-static const struct rotationMatrix piOverTwo = {
+static const struct rotationMatrix PI_OVER_TWO_ROTATION = {
         {0,-1,0,-1},
         {1,0,1,0}
 };
 
-static const struct rotationMatrix negPiOverTwo = {
+static const struct rotationMatrix THREE_PI_OVER_TWO_ROTATION = {
         {0,1, 0,1},
             {-1,0, -1,0}
 };
 
 static uint8_t sampleMax = 0;
+static uint8_t isCheckADCMax;
+static uint8_t isRdc;
+static uint8_t isOffsetTuning;
 static uint8_t arr[(1 << 6) + 27];
 static uint32_t samplePowSum = 0;
 static uint32_t rdcBlockScalar = 9 + 1;
-static uint32_t isCheckADCMax;
-static uint32_t isRdc;
-static uint32_t isOffsetTuning;
 static uint32_t downsample;
 static __m256i *buf;
 static __m256i *bufx4;
@@ -81,8 +89,8 @@ static inline __m256i convert(__m256i data) {
  * Takes a 4x4 matrix and applied it to a 4x1 vector.
  * Here, it is used to apply the same rotation matrix to
  * two complex numbers. i.e., for the the matrix
- * {{a,b}, {c,d}} and two vectors {u1,u2} and {v1,v2}
- * concatenated, s.t. {u1,u2,v1,v2}
+ * T = {{a,b}, {c,d}} and two vectors {u1,u2} and {v1,v2}
+ * concatenated, s.t. u = {u1,u2,v1,v2}
  *  -> {a*u1 + c*u1, b*u2 + d*u2, ... , b*v2 + d*v2}
  */
 static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i u) {
@@ -103,7 +111,7 @@ static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i 
 }
 
 
-static struct rotationMatrix generateRotationMatrix(float theta, float phi) {
+static struct rotationMatrix generateRotationMatrix(const float theta, const float phi) {
 
     int16_t cosT = cos(theta) * (1 << 13);
     int16_t sinT = sin(phi) * (1 << 13);
@@ -115,7 +123,19 @@ static struct rotationMatrix generateRotationMatrix(float theta, float phi) {
     return result;
 }
 
-static void filterDcBlockRaw(const int len) {
+static void filterSimpleLowPass(const uint32_t len) {
+    int i;
+
+    lowPassed = calloc(len << 1, sizeof(__m256i));
+
+    for (i = 0; i < len; ++i) {
+        lowPassed[i]
+            = _mm256_add_epi16(bufx4[i],
+               _mm256_shufflelo_epi16(bufx4[i], _MM_SHUFFLE(1,0,3,2)));
+    }
+}
+
+static void filterDcBlockRaw(const uint32_t len) {
 
     const __m256i oneOverLen = _mm256_set1_epi16(16384/len);
 
@@ -140,15 +160,16 @@ static void filterDcBlockRaw(const int len) {
     dcAvgIq = avgIq;
 }
 
-void rotateForOffsetTuning(int len) {
+static void rotateForNonOffsetTuning(const uint32_t len) {
 
     int i, j;
+
     for(i = 0, j = 0; i < len; ++i, j+=4) {
-        bufx4[i] = applyRotationMatrix(piOverTwo, bufx4[i]);
+        bufx4[i] = applyRotationMatrix(PI_OVER_TWO_ROTATION, bufx4[i]);
     }
 }
 
-static int splitToQuads(uint32_t len) {
+static int splitToQuads(const uint32_t len) {
 
     int i, j, k;
 
@@ -165,7 +186,7 @@ static int splitToQuads(uint32_t len) {
     return k;
 }
 
-static void findMaxSample(uint32_t len) {
+static void findMaxSample(const uint32_t len) {
 
     int i;
     __m256i sm;
@@ -176,7 +197,11 @@ static void findMaxSample(uint32_t len) {
     sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
 }
 
-static uint32_t convertToNx4_16BitMatrix(uint32_t len) {
+static void demodulateFmData(const uint32_t len) {
+
+}
+
+static uint32_t convertTo16BitNx4Matrix(const uint32_t len) {
 
     int i,depth;
     bufx4 = calloc(len << LOG2_LENGTH, sizeof(__m256i));
@@ -197,7 +222,7 @@ static uint32_t convertToNx4_16BitMatrix(uint32_t len) {
     }
 
     if (!isOffsetTuning) {
-        rotateForOffsetTuning(depth);
+        rotateForNonOffsetTuning(depth);
     }
 
     return depth;
@@ -207,10 +232,9 @@ static void breakit(const uint32_t len, const uint32_t size) {
 
     int j = 0;
     int i;
-    uint32_t unit = sizeof(uint8_t);
     long leftToProcess = len;
-    uint32_t step = unit << LOG2_LENGTH;
-    uint32_t chunk = step * unit;
+    uint32_t step = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
+    uint32_t chunk = step * INPUT_ELEMENT_BYTES;
     union m256_8 z;
 
 //    overRun = len - (size-1)*(step);
@@ -225,19 +249,7 @@ static void breakit(const uint32_t len, const uint32_t size) {
     }
 }
 
-void applyLowPass(int len) {
-    int i;
-
-    lowPassed = calloc(len << 1, sizeof(__m256i));
-
-    for (i = 0; i < len; ++i) {
-        lowPassed[i]
-            = _mm256_add_epi16(bufx4[i],
-               _mm256_shufflelo_epi16(bufx4[i], _MM_SHUFFLE(1,0,3,2)));
-    }
-}
-
-void initializeEnv() {
+static void initializeEnv() {
 
     const int16_t scalarP1 = rdcBlockScalar + 1;
     rdcBlockVector = _mm256_set1_epi16(rdcBlockScalar);
@@ -245,18 +257,20 @@ void initializeEnv() {
     rdcBlockRVector = (union m256_16){32768/scalarP1, 0x1, 32768/scalarP1, 0x1}.v;
 }
 
+
+
 int main(int argc, char **argv) {
 
-    srand(time(NULL));
+    srand( time(NULL));
 
-    uint32_t len = sizeof(arr) / sizeof(*arr);
-    uint32_t size = len / (sizeof(char) << LOG2_LENGTH) + 1;
+    uint32_t len = sizeof(arr);// / sizeof(*arr); // no point in div by 1
+    uint32_t size = len / VECTOR_WIDTH + 1;
     uint8_t val;
     int j, i;
 
     if (argc <= 1) {
-        isCheckADCMax = 0;
-        isRdc = 0;
+        isCheckADCMax = 1;
+        isRdc = 1;
         isOffsetTuning = 0;
         downsample = 2;
     } else {
@@ -282,8 +296,11 @@ int main(int argc, char **argv) {
         if (i % LENGTH == 0) printf("\n");
         val = (100 + rand()) % 255;
         arr[i] = val;
-        printf("%hhd, ", val);
+        printf("%hhu, ", val);
         samplePowSum += val*val; // TODO implement this with data parallelism
+                                 // is there a point since it's already
+                                 // linearly looping over the self-same data
+                                 // anyway?
     }
     printf("\n\n");
 
@@ -294,12 +311,12 @@ int main(int argc, char **argv) {
     for (i = 0; i < size; ++i) {
         union m256_8 z = {.v = buf[i]};
         for (j = 0; j < LENGTH; ++j) {
-            printf("%hhd, ", z.buf[j]);
+            printf("%hhu, ", z.buf[j]);
         }
         printf("\n");
     }
 
-    int depth = convertToNx4_16BitMatrix(size);
+    int depth = convertTo16BitNx4Matrix(size);
 
     for (j = 0, i = 0; j < depth; ++j, i+=4) {
         if (i % LENGTH == 0) printf("\n");
@@ -309,7 +326,7 @@ int main(int argc, char **argv) {
     }
     printf("\n");
 
-    applyLowPass(depth);
+    filterSimpleLowPass(depth);
 
     for (j = 0, i = 0; j < depth; ++j, i+=4) {
         if (j % (LENGTH>>1) == 0) printf("\n");
@@ -318,6 +335,7 @@ int main(int argc, char **argv) {
         printf("%hd, %hd, ", w.buf[0],w.buf[1]);
     }
     printf("\n");
+
     free(bufx4);
     free(buf);
 }
