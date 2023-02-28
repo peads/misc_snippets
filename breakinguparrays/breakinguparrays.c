@@ -133,6 +133,10 @@ static void filterSimpleLowPass(const uint32_t len) {
             = _mm256_add_epi16(bufx4[i],
                _mm256_shufflelo_epi16(bufx4[i], _MM_SHUFFLE(1,0,3,2)));
     }
+
+
+    // special case for the first element; it needs to be compared to the origin
+    lowPassed[0] = _mm256_blend_epi16(lowPassed[0], ZERO, _MM_SHUFFLE(0,0,0,3)); // 00 22 = 0000 0101 = 0 5 => 1100
 }
 
 static void filterDcBlockRaw(const uint32_t len) {
@@ -328,7 +332,7 @@ int main(int argc, char **argv) {
 
     filterSimpleLowPass(depth);
 
-    for (j = 0, i = 0; j < depth; ++j, i+=4) {
+    for (j = 0, i = 4; j < depth; ++j, i+=4) {
         if (j % (LENGTH>>1) == 0) printf("\n");
         union m256_16 w = {.v = lowPassed[j]};
 
@@ -336,6 +340,20 @@ int main(int argc, char **argv) {
     }
     printf("\n");
 
+    demodulateFmData(depth);
+
+    union m256_16 tmp = {.v = lowPassed[0]};
+    printf("\n%hd, %hd, %hd, %hd, ", tmp.buf[0],tmp.buf[1], tmp.buf[2], tmp.buf[3]);
+    for (j = 1, i = 4; j < depth; ++j, i+=4) {
+        if (j % (LENGTH>>1) == 0) printf("\n");
+        union m256_16 w = {.v = lowPassed[j]};
+
+        printf("%hd, %hd, ", w.buf[0],w.buf[1]);
+    }
+
+    printf("\n");
+
+    free(lowPassed);
     free(bufx4);
     free(buf);
 }
