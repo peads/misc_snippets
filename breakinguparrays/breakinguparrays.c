@@ -225,46 +225,6 @@ static void breakit(const uint32_t len, const uint32_t size) {
     }
 }
 
-int16_t *lowpassed;
-int16_t *lowpassed2;
-
-void low_pass(int len)
-/* simple square window FIR */
-{
-    union m256_16 temp;
-    int16_t now_r, now_j, prev_index;
-    int i, k, j;
-
-    now_j = now_r = prev_index = 0;
-
-    for (k = 0, j = 0; j < len; ++j) {
-
-        prev_index = 0;
-        now_r = 0;
-        now_j = 0;
-        i = 0;
-        temp.v = bufx4[j];
-
-        lowpassed2[k] = temp.buf[0] + temp.buf[2];
-        lowpassed2[k+1] = temp.buf[1] + temp.buf[3];
-
-        while (i < 4) {
-            now_r += temp.buf[i];
-            now_j += temp.buf[i + 1];
-            i += 2;
-            prev_index++;
-            if (prev_index < downsample) {
-                continue;
-            }
-            lowpassed[k] = now_r; /* * d->output_scale; */
-            lowpassed[k + 1] = now_j; /* * d->output_scale; */
-
-            k += 2;
-        }
-
-    }
-}
-
 void applyLowPass(int len) {
     int i;
 
@@ -349,23 +309,8 @@ int main(int argc, char **argv) {
     }
     printf("\n");
 
-    lowpassed = calloc(depth << 1, sizeof(int16_t));
-    lowpassed2 = calloc(depth << 1, sizeof(int16_t));
-    low_pass(depth);
-    
-    for (i = 0; i < depth << 1; i+=4) {
-        if (i % (LENGTH) == 0) printf("\n");
-        printf("%hd, %hd, %hd, %hd, ",  lowpassed[i],  lowpassed[i+1], lowpassed[i+2] , lowpassed[i+3]);
-    }
-    printf("\n");
-
-    for (i = 0; i < depth << 1; i+=4) {
-        if (i % (LENGTH) == 0) printf("\n");
-        printf("%hd, %hd, %hd, %hd, ",  lowpassed2[i],  lowpassed2[i+1], lowpassed2[i+2] , lowpassed2[i+3]);
-    }
-    printf("\n");
-
     applyLowPass(depth);
+
     for (j = 0, i = 0; j < depth; ++j, i+=4) {
         if (j % (LENGTH>>1) == 0) printf("\n");
         union m256_16 w = {.v = lowPassed[j]};
