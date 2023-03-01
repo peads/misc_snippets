@@ -78,15 +78,14 @@ __asm__(
     "vaddps %xmm2, %xmm1, %xmm1\n\t"        // ..., (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
     "vsqrtps %xmm1, %xmm1\n\t"              // ..., Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "vdivps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/r , zr/r = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
-"ret\n\t"
 
     // push
     "sub $16, %rsp \n\t"
-    "vextractps $0, %xmm0, (%rsp) \n\t"
+    "vextractps $1, %xmm0, (%rsp) \n\t"
     "flds (%rsp) \n\t"
     // push
     "sub $16, %rsp \n\t"
-    "vextractps $3, %xmm0, (%rsp) \n\t"
+    "vextractps $2, %xmm0, (%rsp) \n\t"
     "flds (%rsp) \n\t"
     "fpatan \n\t"
     "fstps (%rsp) \n\t"
