@@ -47,9 +47,9 @@ static const __m256 FIXED_PT_SCALE // 2^14/Pi
     = {5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896};
 
 /**
- * Takes two packed f32s representing the complex numbers
+ * Takes two packed int16_ts representing the complex numbers
  * (ar + iaj), (br + ibj), s.t. z = {ar, br, aj, bj}
- * and returns their argument.
+ * and returns their argument as a packed f32
  **/
 extern __m256 argzB(__m256i a, __m256i b);
 __asm__(
@@ -345,16 +345,16 @@ int fm_demod(int len)
     int16_t pre_r, pre_j, lp[len << 2], result[len << 1];
 
     for (i = 0; i < len; i+=2, j+=4) {
-        if (j % (LENGTH) == 0) printf("\n");
+//        if (j % (LENGTH) == 0) printf("\n");
         union m256_16 temp = {.v = _mm256_unpacklo_epi16(lowPassed[i], lowPassed[i+1])};
         lp[j] = temp.buf[0];
         lp[j+1] = temp.buf[2];
         lp[j+2] = temp.buf[1];
         lp[j+3] = temp.buf[3];
 
-        printf("%hd, %hd, %hd, %hd, ",  lp[j], lp[j+1], lp[j+2], lp[j+3]);
+//        printf("%hd, %hd, %hd, %hd, ",  lp[j], lp[j+1], lp[j+2], lp[j+3]);
     }
-    printf("\n");
+//    printf("\n");
 
     pcm = polar_discriminant(lp[0], lp[1],
                              pre_r, pre_j);
@@ -371,10 +371,9 @@ int fm_demod(int len)
 //    pre_j = lp[len - 1];
 
     for (i = 0; i < len; i+=4) {
-        printf("\n");
         printf("%hd, %hd, %hd, %hd, ",  result[i], result[i+1], result[i+2], result[i+3]);
+        printf("\n");
     }
-    printf("\n");
 
     return len << 1;
 }
@@ -424,23 +423,7 @@ int main(int argc, char **argv) {
 
     int depth = convertTo16BitNx4Matrix(buf, len);
 
-    for (j = 0, i = 0; j < depth; ++j, i+=4) {
-        if (i % LENGTH == 0) printf("\n");
-        union m256_16 w = {.v = buf16x4[j]};
-
-        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
-    }
-    printf("\n");
-
     filterSimpleLowPass(depth);
-
-    for (j = 0; j < depth; ++j) {
-        if (j % (LENGTH >> 1) == 0) printf("\n");
-        union m256_16 w = {.v = lowPassed[j]};
-
-        printf("%hd, %hd, ", w.buf[0],w.buf[1]);
-    }
-    printf("\n");
 
     fm_demod(depth);
     demodulateFmData(depth);
