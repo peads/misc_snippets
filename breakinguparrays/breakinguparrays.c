@@ -31,7 +31,6 @@
 union m256_8 {
     uint8_t buf[LENGTH];
     __m256i v;
-    int16_t buf16[LENGTH];
 };
 
 union m256_16 {
@@ -54,23 +53,18 @@ static const __m256i Z // all 127s
  * (ar + iaj) * (br + ibj), * s.t. z = {ar, aj, br, bj}
  * and return their argument.
  **/
-extern __m256i argzB(__m256i z, __m256i w);
+extern __m256 argzB(__m256 z);
 __asm__(
 #ifdef __clang__
 "_argzB: "
 #else
 "argzB: "
 #endif
-//    "vshufps $0x11, %xmm0, %xmm1, %xmm0\n\t"
-//    "vpermilps $0xDD, %xmm0, %xmm0\n\t"      // aj, aj, ar, ar -> xmm0
-//    "vpermilps $0x44, %xmm0, %xmm1\n\t"        // 10 10 = 0100 0100 = 44
+    "vpermilps $0x5, %xmm0, %xmm1\n\t" // ar, br, aj, bj => (aj, aj, ar, ar)  and (bj, br, br, bj)
+    "vpermilps $0xC, %xmm0, %xmm0\n\t" // aj, aj, ar, ar (50) 0000 1100
+//    "vmovq %xmm1, %xmm0\n\t"
 
-//    "vshufps $0, %xmm3, %xmm2, %xmm1\n\t"
-//    "vpermilps $0x87, %xmm1, %xmm1\n\t"     // bj, br, br, bj -> xmm1
-    "vpshuflw $0xEB, %xmm1, %xmm1\n\t" //
-    "vcvtdq2ps %xmm0, %xmm0\n\t"
-    "vcvtdq2ps %xmm1, %xmm1\n\t"
-
+"ret\n\t"
     "vmulps %xmm0, %xmm1, %xmm0\n\t"        // aj*bj, ar*br, aj*br, ar*bj
     "vpermilps $0xB1, %xmm0, %xmm3\n\t"
     "vaddsubps %xmm0, %xmm3, %xmm0\n\t"     // ar*br - aj*bj, ... , ar*bj + aj*br
@@ -91,18 +85,64 @@ __asm__(
     "fpatan \n\t"
     "fstps (%rsp) \n\t"
 
-    // B I G pop
+    // B I G pop and return
     "vmovq (%rsp), %xmm0 \n\t"
     "add $32, %rsp \n\t"
-
-    "movl $0x40490fdb, %edx\n\t" // Pi
-    "vmovq %rdx, %xmm1\n\t"
-    "vpbroadcastq %xmm1, %xmm1\n\t"
-    "vdivps %xmm1, %xmm0, %xmm0\n\t"
-
-    "vcvttps2dq %xmm0, %xmm0\n\t"
-    "vpmulhrsw %xmm1, %xmm0, %xmm0\n\t"
     "ret"
+
+//    "vbroadcastss %xmm0, %xmm0\n\t"
+//    "movl $0x40490fdb, %edx\n\t" // Pi
+//    "vmovq %rdx, %xmm1\n\t"
+//    "vpbroadcastq %xmm1, %xmm1\n\t"
+//    "vdivps %xmm1, %xmm0, %xmm0\n\t"
+//    "movl $0x46800000, %edx\n\t" // 2^14
+//    "vmovq %rdx, %xmm1\n\t"
+//    "vpbroadcastq %xmm1, %xmm1\n\t"
+//    "vmulps %xmm1, %xmm0, %xmm0\n\t"
+//
+//    "vcvttps2dq %xmm0, %xmm0\n\t"
+
+//    "vpmullw %xmm0, %xmm1, %xmm0\n\t"        // aj*bj, ar*br, aj*br, ar*bj
+//    "vpshuflw $0xB1, %xmm0, %xmm3\n\t"
+//    "vpmullw %xmm3, %xmm2, %xmm3\n\t"
+//    "vpaddw %xmm0, %xmm3, %xmm0\n\t"
+////    "vaddsubps %xmm0, %xmm3, %xmm0\n\t"     // ar*br - aj*bj, ... , ar*bj + aj*br
+//    "vpmullw %xmm0, %xmm0, %xmm1\n\t"        // (ar*br - aj*bj)^2, ... , (ar*bj + aj*br)^2
+//    "vpshuflw $0x1B, %xmm1, %xmm2\n\t"     // 0123 = 00011011 = 1B
+//    "vpaddw %xmm2, %xmm1, %xmm1\n\t"        // (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
+//
+//
+//    "vsqrtps %xmm1, %xmm1\n\t"              // Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+//    "vdivps %xmm1, %xmm0, %xmm0\n\t"        // (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+//
+//    // push
+//    "sub $16, %rsp \n\t"
+//    "vextractps $0, %xmm0, (%rsp) \n\t"
+//    "flds (%rsp) \n\t"
+//    // push
+//    "sub $16, %rsp \n\t"
+//    "vextractps $3, %xmm0, (%rsp) \n\t"
+//    "flds (%rsp) \n\t"
+//    "fpatan \n\t"
+//    "fstps (%rsp) \n\t"
+//
+//    // B I G pop
+//    "vmovq (%rsp), %xmm0 \n\t"
+//    "add $32, %rsp \n\t"
+//
+////    "movl $0x40490fdb, %edx\n\t" // Pi
+////    "vmovq %rdx, %xmm1\n\t"
+////    "vpbroadcastq %xmm1, %xmm1\n\t"
+////    "vdivps %xmm1, %xmm0, %xmm0\n\t"
+////    "movq $0x4000, %rdx\n\t"
+////    "vmovq %rdx, %xmm1\n\t"
+////    "vpbroadcastq %xmm1, %xmm1\n\t"
+////    "vmulps %xmm1, %xmm0, %xmm0\n\t"
+//
+//
+////    "vpmulhrsw %xmm1, %xmm0, %xmm0\n\t"
+//    "vcvttps2dq %xmm0, %xmm0\n\t"
+//    "ret"
 );
 
 static const struct rotationMatrix PI_OVER_TWO_ROTATION = {
@@ -122,7 +162,6 @@ static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 static uint32_t rdcBlockScalar = 9 + 1;
 static uint32_t downsample;
-static __m256i *buf8;
 static __m256i *buf16x4;
 static __m256i *lowPassed;
 static __m256i dcAvgIq = {0,0,0,0};
@@ -136,11 +175,15 @@ static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
     return a > b ? a : b;
 }
 
-static inline __m256i convert(__m256i data) {
+static inline __m256i mm256Epi8convertEpi16(__m256i data) {
     __m128i lo_lane = _mm256_castsi256_si128(data);
     return _mm256_cvtepi8_epi16(lo_lane);
 }
 
+static inline __m256i mm256Epi16convertEpi32(__m256i data) {
+    __m128i lo_lane = _mm256_castsi256_si128(data);
+    return _mm256_cvtepi16_epi32(lo_lane);
+}
 /**
  * Takes a 4x4 matrix and applied it to a 4x1 vector.
  * Here, it is used to apply the same rotation matrix to
@@ -187,7 +230,7 @@ static void filterSimpleLowPass(const uint32_t len) {
     for (i = 0; i < len; ++i) {
         lowPassed[i]
             = _mm256_add_epi16(buf16x4[i],
-                               _mm256_shufflelo_epi16(buf16x4[i], _MM_SHUFFLE(1, 0, 3, 2)));
+               _mm256_shufflelo_epi16(buf16x4[i], _MM_SHUFFLE(1, 0, 3, 2)));
     }
 }
 
@@ -225,24 +268,24 @@ static void rotateForNonOffsetTuning(const uint32_t len) {
     }
 }
 
-static int splitToQuads(const uint32_t len) {
+static int splitToQuads(const __m256i *buf, const uint32_t len) {
 
     int i, j, k;
 
     for (j = 0, k = 0; j < len; ++j) {
 
-        union m256_8 w = {.v = buf8[j]};
+        union m256_16 w = {.v = mm256Epi8convertEpi16(_mm256_sub_epi8(buf[j], Z))};
 
         for (i = 0; i < LENGTH; i += 4) {
             buf16x4[k++]
-                = (union m256_16){w.buf16[i], w.buf16[i+1], w.buf16[i+2], w.buf16[i+3]}.v;
+                = (union m256_16){w.buf[i], w.buf[i+1], w.buf[i+2], w.buf[i+3]}.v;
         }
     }
 
     return k;
 }
 
-static void findMaxSample(const uint32_t len) {
+static void findMaxSample(const __m256i *buf8, const uint32_t len) {
 
     int i;
     __m256i sm;
@@ -254,33 +297,73 @@ static void findMaxSample(const uint32_t len) {
 }
 
 static void demodulateFmData(const uint32_t len) {
-    union m256_16 temp;
     int i;
     for (i = 0; i < len; i+=2) {
-        temp.v = lowPassed[i];
-        lowPassed[i] =  argzB(lowPassed[i], lowPassed[i+1]);
-    }
+        union m256_16 temp;
+        union m256_16 a = {.v = _mm256_shufflelo_epi16(lowPassed[i+1], _MM_SHUFFLE(3,2,2,3))};
+        union m256_16 b = {.v = _mm256_shufflelo_epi16(lowPassed[i], _MM_SHUFFLE(0,0,1,1))};
 
+        if (i % (LENGTH>>1) == 0) printf("\n");
+//        temp.v = lowPassed[i];
+        union {
+            __m256 v;
+            float buf[4];
+        } v = {.v = _mm256_castsi256_ps(mm256Epi16convertEpi32(lowPassed[i]))};//argzB()};
+
+        v.v = _mm256_permute_ps(v.v, _MM_SHUFFLE(3,2,2,3));
+
+        temp.v = _mm256_castsi256_ps(v.v);
+        printf("%hd, %hd, %hd, %hd, ", temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
+    }
+    printf("\n");
+
+    union m256_16 temp;
     temp.v = lowPassed[len-1];
     previousR = temp.buf[2];
     previousJ = temp.buf[3];
 }
 
-static uint32_t convertTo16BitNx4Matrix(const uint32_t len) {
+
+static void breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8, const uint32_t size) {
+
+    int j = 0;
+    int i;
+    long leftToProcess = len;
+    uint32_t step = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
+    uint32_t chunk = step * INPUT_ELEMENT_BYTES;
+    union m256_8 z;
+
+//    overRun = len - (size-1)*(step);
+//    buf8 = calloc(size * chunk, sizeof(__m256i));
+//    memset(buf8, 0, size * chunk * sizeof(__m256i));
+
+    for (i = 0; leftToProcess > 0; i += step, ++j) {
+
+        memcpy(z.buf, buf + i, chunk);
+        buf8[j] = z.v;
+        leftToProcess -= step;
+    }
+}
+
+static uint32_t convertTo16BitNx4Matrix(const uint8_t *buf, const uint32_t len) {
+
 
     int i,depth;
-    buf16x4 = calloc(len << LOG2_LENGTH, sizeof(__m256i));
+    uint32_t size = len / VECTOR_WIDTH + 1;
+    __m256i *buf8 = calloc(size << LOG2_LENGTH, sizeof(__m256i));
+
+    buf16x4 = calloc(size << LOG2_LENGTH, sizeof(__m256i));
+
+    breakit(buf, len, buf8, size);
 
     if (isCheckADCMax) {
 
-        findMaxSample(len);
+        findMaxSample(buf8, size);
     }
 
-    for (i = 0; i < len; i++) {
-        buf8[i] = convert(_mm256_sub_epi8(buf8[i], Z));
-    }
+    depth = splitToQuads(buf8, size);
 
-    depth = splitToQuads(len);
+    free(buf8);
 
     if (isRdc) {
         filterDcBlockRaw(depth);
@@ -291,27 +374,6 @@ static uint32_t convertTo16BitNx4Matrix(const uint32_t len) {
     }
 
     return depth;
-}
-
-static void breakit(const uint8_t *buf, const uint32_t len, const uint32_t size) {
-
-    int j = 0;
-    int i;
-    long leftToProcess = len;
-    uint32_t step = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
-    uint32_t chunk = step * INPUT_ELEMENT_BYTES;
-    union m256_8 z;
-
-//    overRun = len - (size-1)*(step);
-    buf8 = calloc(size * chunk, sizeof(__m256i));
-//    memset(buf8, 0, size * chunk * sizeof(__m256i));
-
-    for (i = 0; leftToProcess > 0; i += step, ++j) {
-
-        memcpy(z.buf, buf + i, chunk);
-        buf8[j] = z.v;
-        leftToProcess -= step;
-    }
 }
 
 static uint32_t initializeEnv(uint8_t *buf, uint32_t len) {
@@ -392,7 +454,6 @@ int main(int argc, char **argv) {
     static uint32_t len = ((1 << 6) + 27 + 2) / INPUT_ELEMENT_BYTES;
 
     uint8_t buf[len];
-    uint32_t size = len / VECTOR_WIDTH + 1;
     int j, i;
 
     inBuf = calloc(len - 2, INPUT_ELEMENT_BYTES);
@@ -400,7 +461,7 @@ int main(int argc, char **argv) {
     if (argc <= 1) {
         isCheckADCMax = 0;
         isRdc = 0;
-        isOffsetTuning = 0;
+        isOffsetTuning = 1;
         downsample = 2;
     } else {
         for (i = 0; i < argc; ++i) {
@@ -428,20 +489,19 @@ int main(int argc, char **argv) {
     for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
         samplePowSum += buf[i]*buf[i];
     }
-
     samplePowSum += samplePowSum / (LENGTH*len);
 
-    breakit(buf, len, size);
+//    breakit(buf, len, size);
+//
+//    for (i = 0; i < size; ++i) {
+//        union m256_8 z = {.v = buf8[i]};
+//        for (j = 0; j < LENGTH; ++j) {
+//            printf("%hhu, ", z.buf[j]);
+//        }
+//        printf("\n");
+//    }
 
-    for (i = 0; i < size; ++i) {
-        union m256_8 z = {.v = buf8[i]};
-        for (j = 0; j < LENGTH; ++j) {
-            printf("%hhu, ", z.buf[j]);
-        }
-        printf("\n");
-    }
-
-    int depth = convertTo16BitNx4Matrix(size);
+    int depth = convertTo16BitNx4Matrix(buf, len);
 
     for (j = 0, i = 0; j < depth; ++j, i+=4) {
         if (i % LENGTH == 0) printf("\n");
@@ -454,26 +514,25 @@ int main(int argc, char **argv) {
     filterSimpleLowPass(depth);
 
     for (j = 0; j < depth; ++j) {
-        if (j % (LENGTH >> 2) == 0) printf("\n");
+        if (j % (LENGTH >> 1) == 0) printf("\n");
         union m256_16 w = {.v = lowPassed[j]};
 
-        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+        printf("%hd, %hd, ", w.buf[0],w.buf[1]);
     }
     printf("\n");
 
     fm_demod(depth);
     demodulateFmData(depth);
 
-    for (j = 0; j < depth; ++j) {
-        if (j % (LENGTH >> 2) == 0) printf("\n");
-        union m256_16 w = {.v = lowPassed[j]};
-
-        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
-    }
-    printf("\n");
+//    for (j = 0; j < depth; ++j) {
+//        if (j % (LENGTH >> 2) == 0) printf("\n");
+//        union m256_16 w = {.v = lowPassed[j]};
+//
+//        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+//    }
+//    printf("\n");
 
     free(lowPassed);
     free(buf16x4);
-    free(buf8);
     free(inBuf);
 }
