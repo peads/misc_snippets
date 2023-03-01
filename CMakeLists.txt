@@ -21,6 +21,7 @@ add_subdirectory(atan2)
 add_subdirectory(breakinguparrays)
 
 if(UNIX AND NOT APPLE)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mno-avx256-split-unaligned-load")
     target_link_libraries(argz PUBLIC m)
     target_link_libraries(complex PUBLIC m)
     target_link_libraries(sqrt PUBLIC m)

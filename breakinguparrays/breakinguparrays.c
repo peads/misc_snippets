@@ -24,14 +24,9 @@
 #define INPUT_ELEMENT_BYTES 1
 #define LOG2_LENGTH 4
 #define LENGTH (1 << LOG2_LENGTH)
-#define DEFAULT_BUF_SIZE		32768
-#define MAXIMUM_BUF_SIZE		(DEFAULT_BUF_SIZE << LOG2_LENGTH)
+//#define DEFAULT_BUF_SIZE		32768
+//#define MAXIMUM_BUF_SIZE		(DEFAULT_BUF_SIZE << LOG2_LENGTH)
 // therefore, max depth is  MAXIMUM_BUF_SIZE >> 2
-
-union m256_8 {
-    uint8_t buf[LENGTH];
-    __m256i v;
-};
 
 union m256_16 {
     int16_t buf[4];
@@ -44,20 +39,17 @@ struct rotationMatrix {
 };
 
 static const uint32_t VECTOR_WIDTH = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
-static const __m256i ZERO = {0, 0, 0, 0};
-static const __m256i ONE = {1, 1, 1, 1};
+//static const __m256i ZERO = {0, 0, 0, 0};
+//static const __m256i ONE = {1, 1, 1, 1};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
-//static const __m256 M_1_PI_SS
-//    = {0.318309873, 0.318309873, 0.318309873, 0.318309873, 0.318309873, 0.318309873, 0.318309873, 0.318309873};
-static const __m256 FIXED_PT_SCALE
+static const __m256 FIXED_PT_SCALE // 2^14/Pi
     = {5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896};
-//= {16384, 16384, 16384, 16384, 16384, 16384, 16384, 16384};
 
 /**
- * takes four float representing the complex numbers
- * (ar + iaj) * (br + ibj), * s.t. z = {ar, aj, br, bj}
- * and return their argument.
+ * Takes two packed f32s representing the complex numbers
+ * (ar + iaj), (br + ibj), s.t. z = {ar, br, aj, bj}
+ * and returns their argument.
  **/
 extern __m256 argzB(__m256i a, __m256i b);
 __asm__(
@@ -75,12 +67,9 @@ __asm__(
 
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
     "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br
-                                            // WRONG B1 = 1011 0001, 1000 1101 = 8D = 20 31
-                                            // ALSO WRONG flipped ar*br - aj*bj calc
-                                            // so flip the operands, obv
     "vaddsubps %xmm3, %xmm0, %xmm0\n\t"     //  ... [don't care], ar*bj + aj*br, ar*br - aj*bj, [don't care] ...
     "vmulps %xmm0, %xmm0, %xmm1\n\t"        // ... , (ar*bj + aj*br)^2, (ar*br - aj*bj)^2, ...
-    "vpermilps $0x1B, %xmm1, %xmm2\n\t"     // 0123 = 00011011 = 1B
+    "vpermilps $0x1B, %xmm1, %xmm2\n\t"
     "vaddps %xmm2, %xmm1, %xmm1\n\t"        // ..., (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
     "vsqrtps %xmm1, %xmm1\n\t"              // ..., Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "vdivps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/r , zr/r = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
@@ -118,7 +107,7 @@ static uint8_t isRdc;
 static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 static uint32_t rdcBlockScalar = 9 + 1;
-static uint32_t downsample;
+//static uint32_t downsample;
 static __m256i *buf16x4;
 static __m256i *lowPassed;
 static __m256i dcAvgIq = {0,0,0,0};
@@ -137,10 +126,6 @@ static inline __m256i mm256Epi8convertEpi16(__m256i data) {
     return _mm256_cvtepi8_epi16(lo_lane);
 }
 
-static inline __m256i mm256Epi16convertEpi32(__m256i data) {
-    __m128i lo_lane = _mm256_castsi256_si128(data);
-    return _mm256_cvtepi16_epi32(lo_lane);
-}
 /**
  * Takes a 4x4 matrix and applies it to a 4x1 vector.
  * Here, it is used to apply the same rotation matrix to
@@ -225,7 +210,7 @@ static void rotateForNonOffsetTuning(const uint32_t len) {
     }
 }
 
-static int splitToQuads(const __m256i *buf, const uint32_t len) {
+static int splitIntoQuads(const __m256i *buf, const uint32_t len) {
 
     int i, j, k;
 
@@ -267,18 +252,17 @@ static void demodulateFmData(const uint32_t len) {
 }
 
 
-static void breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8, const uint32_t size) {
+static void breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8) {
 
     int j = 0;
     int i;
     long leftToProcess = len;
     uint32_t step = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
     uint32_t chunk = step * INPUT_ELEMENT_BYTES;
-    union m256_8 z;
-
-//    overRun = len - (size-1)*(step);
-//    buf8 = calloc(size * chunk, sizeof(__m256i));
-//    memset(buf8, 0, size * chunk * sizeof(__m256i));
+    union {
+        uint8_t buf[LENGTH];
+        __m256i v;
+    } z;
 
     for (i = 0; leftToProcess > 0; i += step, ++j) {
 
@@ -291,20 +275,20 @@ static void breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8, const
 static uint32_t convertTo16BitNx4Matrix(const uint8_t *buf, const uint32_t len) {
 
 
-    int i,depth;
+    int depth;
     uint32_t size = len / VECTOR_WIDTH + 1;
     __m256i *buf8 = calloc(size << LOG2_LENGTH, sizeof(__m256i));
 
     buf16x4 = calloc(size << LOG2_LENGTH, sizeof(__m256i));
 
-    breakit(buf, len, buf8, size);
+    breakit(buf, len, buf8);
 
     if (isCheckADCMax) {
 
         findMaxSample(buf8, size);
     }
 
-    depth = splitToQuads(buf8, size);
+    depth = splitIntoQuads(buf8, size);
 
     free(buf8);
 
@@ -324,7 +308,7 @@ static uint32_t initializeEnv(uint8_t *buf, uint32_t len) {
     srand( time(NULL));
 
     int i;
-    uint8_t val;
+
     for (i = 0; i < len; ++i) {
         if (i % LENGTH == 0) printf("\n");
         buf[i] = (100 + rand()) % 255;
@@ -383,8 +367,8 @@ int fm_demod(int len)
         result[i/2] = (int16_t) pcm;
     }
 
-    pre_r = lp[len - 2];
-    pre_j = lp[len - 1];
+//    pre_r = lp[len - 2];
+//    pre_j = lp[len - 1];
 
     for (i = 0; i < len; i+=4) {
         printf("\n");
@@ -408,8 +392,8 @@ int main(int argc, char **argv) {
     if (argc <= 1) {
         isCheckADCMax = 0;
         isRdc = 0;
-        isOffsetTuning = 1;
-        downsample = 2;
+        isOffsetTuning = 0;
+//        downsample = 2;
     } else {
         for (i = 0; i < argc; ++i) {
             switch (argv[i][0]){
@@ -438,16 +422,6 @@ int main(int argc, char **argv) {
     }
     samplePowSum += samplePowSum / (LENGTH*len);
 
-//    breakit(buf, len, size);
-//
-//    for (i = 0; i < size; ++i) {
-//        union m256_8 z = {.v = buf8[i]};
-//        for (j = 0; j < LENGTH; ++j) {
-//            printf("%hhu, ", z.buf[j]);
-//        }
-//        printf("\n");
-//    }
-
     int depth = convertTo16BitNx4Matrix(buf, len);
 
     for (j = 0, i = 0; j < depth; ++j, i+=4) {
@@ -472,10 +446,10 @@ int main(int argc, char **argv) {
     demodulateFmData(depth);
 
     for (j = 0; j < depth; j++) {
-        printf("\n");
+        if (j % 4 == 0) printf("\n");
         union m256_16 w = {.v = lowPassed[j]};
 
-        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+        printf("%hd, ", w.buf[0]);
     }
     printf("\n");
 
