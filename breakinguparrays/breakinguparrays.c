@@ -48,6 +48,9 @@ static const __m256i ZERO = {0, 0, 0, 0};
 static const __m256i ONE = {1, 1, 1, 1};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
+static const __m256 PIS_F
+    = {3.14159274, 3.14159274, 3.14159274, 3.14159274, 3.14159274, 3.14159274, 3.14159274, 3.14159274};
+
 /**
  * takes four float representing the complex numbers
  * (ar + iaj) * (br + ibj), * s.t. z = {ar, aj, br, bj}
@@ -94,60 +97,6 @@ __asm__(
     "vmovq (%rsp), %xmm0 \n\t"
     "add $32, %rsp \n\t"
     "ret"
-
-//    "vbroadcastss %xmm0, %xmm0\n\t"
-//    "movl $0x40490fdb, %edx\n\t" // Pi
-//    "vmovq %rdx, %xmm1\n\t"
-//    "vpbroadcastq %xmm1, %xmm1\n\t"
-//    "vdivps %xmm1, %xmm0, %xmm0\n\t"
-//    "movl $0x46800000, %edx\n\t" // 2^14
-//    "vmovq %rdx, %xmm1\n\t"
-//    "vpbroadcastq %xmm1, %xmm1\n\t"
-//    "vmulps %xmm1, %xmm0, %xmm0\n\t"
-//
-//    "vcvttps2dq %xmm0, %xmm0\n\t"
-
-//    "vpmullw %xmm0, %xmm1, %xmm0\n\t"        // aj*bj, ar*br, aj*br, ar*bj
-//    "vpshuflw $0xB1, %xmm0, %xmm3\n\t"
-//    "vpmullw %xmm3, %xmm2, %xmm3\n\t"
-//    "vpaddw %xmm0, %xmm3, %xmm0\n\t"
-////    "vaddsubps %xmm0, %xmm3, %xmm0\n\t"     // ar*br - aj*bj, ... , ar*bj + aj*br
-//    "vpmullw %xmm0, %xmm0, %xmm1\n\t"        // (ar*br - aj*bj)^2, ... , (ar*bj + aj*br)^2
-//    "vpshuflw $0x1B, %xmm1, %xmm2\n\t"     // 0123 = 00011011 = 1B
-//    "vpaddw %xmm2, %xmm1, %xmm1\n\t"        // (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
-//
-//
-//    "vsqrtps %xmm1, %xmm1\n\t"              // Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
-//    "vdivps %xmm1, %xmm0, %xmm0\n\t"        // (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
-//
-//    // push
-//    "sub $16, %rsp \n\t"
-//    "vextractps $0, %xmm0, (%rsp) \n\t"
-//    "flds (%rsp) \n\t"
-//    // push
-//    "sub $16, %rsp \n\t"
-//    "vextractps $3, %xmm0, (%rsp) \n\t"
-//    "flds (%rsp) \n\t"
-//    "fpatan \n\t"
-//    "fstps (%rsp) \n\t"
-//
-//    // B I G pop
-//    "vmovq (%rsp), %xmm0 \n\t"
-//    "add $32, %rsp \n\t"
-//
-////    "movl $0x40490fdb, %edx\n\t" // Pi
-////    "vmovq %rdx, %xmm1\n\t"
-////    "vpbroadcastq %xmm1, %xmm1\n\t"
-////    "vdivps %xmm1, %xmm0, %xmm0\n\t"
-////    "movq $0x4000, %rdx\n\t"
-////    "vmovq %rdx, %xmm1\n\t"
-////    "vpbroadcastq %xmm1, %xmm1\n\t"
-////    "vmulps %xmm1, %xmm0, %xmm0\n\t"
-//
-//
-////    "vpmulhrsw %xmm1, %xmm0, %xmm0\n\t"
-//    "vcvttps2dq %xmm0, %xmm0\n\t"
-//    "ret"
 );
 
 static const struct rotationMatrix PI_OVER_TWO_ROTATION = {
@@ -320,10 +269,18 @@ static void demodulateFmData(const uint32_t len) {
 
         if (i % (LENGTH>>1) == 0) printf("\n");
 
-        union {
+        union m256_f {
             __m256 v;
             float buf[4];
-        } v = {.v = argzB(lowPassed[i], lowPassed[i+1])};//_mm256_cvtepi32_ps(b.v)};
+        } v = {.v = argzB(lowPassed[i], lowPassed[i+1])};
+
+        float pi = (float)M_1_PI;
+        float two = (float) (1<<14);
+        union m256_f u = {.v = _mm256_broadcast_ss(&pi)};
+        v.v = _mm256_mul_ps(u.v, v.v);
+        u.v = _mm256_broadcast_ss(&two);
+        v.v = _mm256_mul_ps(u.v, v.v);
+
 
         temp.v = _mm256_cvtps_epi32(v.v);
         printf("%hd, %hd, %hd, %hd, ", temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
