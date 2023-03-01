@@ -255,7 +255,7 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
 
 static void demodulateFmData(const uint32_t len) {
     int i;
-    for (i = 0; i < len; i+=2) {
+    for (i = 0; i < len<<1; i++) {
         lowPassed[i] = _mm256_cvtps_epi32(_mm256_mul_ps(FIXED_PT_SCALE, // angle * 2^14/Pi
                                     argzB(lowPassed[i], lowPassed[i+1])));
     }
@@ -471,8 +471,8 @@ int main(int argc, char **argv) {
     fm_demod(depth);
     demodulateFmData(depth);
 
-    for (j = 0; j < depth; ++j) {
-        if (j % (LENGTH >> 1) == 0) printf("\n");
+    for (j = 0; j < depth; j++) {
+        printf("\n");
         union m256_16 w = {.v = lowPassed[j]};
 
         printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
