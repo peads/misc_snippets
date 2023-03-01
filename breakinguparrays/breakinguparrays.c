@@ -49,6 +49,61 @@ static const __m256i ZERO = {0, 0, 0, 0};
 static const __m256i ONE = {1, 1, 1, 1};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
+/**
+ * takes four float representing the complex numbers
+ * (ar + iaj) * (br + ibj), * s.t. z = {ar, aj, br, bj}
+ * and return their argument.
+ **/
+extern __m256i argzB(__m256i z, __m256i w);
+__asm__(
+#ifdef __clang__
+"_argzB: "
+#else
+"argzB: "
+#endif
+//    "vshufps $0x11, %xmm0, %xmm1, %xmm0\n\t"
+//    "vpermilps $0xDD, %xmm0, %xmm0\n\t"      // aj, aj, ar, ar -> xmm0
+//    "vpermilps $0x44, %xmm0, %xmm1\n\t"        // 10 10 = 0100 0100 = 44
+
+//    "vshufps $0, %xmm3, %xmm2, %xmm1\n\t"
+//    "vpermilps $0x87, %xmm1, %xmm1\n\t"     // bj, br, br, bj -> xmm1
+    "vpshuflw $0xEB, %xmm1, %xmm1\n\t" //
+    "vcvtdq2ps %xmm0, %xmm0\n\t"
+    "vcvtdq2ps %xmm1, %xmm1\n\t"
+
+    "vmulps %xmm0, %xmm1, %xmm0\n\t"        // aj*bj, ar*br, aj*br, ar*bj
+    "vpermilps $0xB1, %xmm0, %xmm3\n\t"
+    "vaddsubps %xmm0, %xmm3, %xmm0\n\t"     // ar*br - aj*bj, ... , ar*bj + aj*br
+    "vmulps %xmm0, %xmm0, %xmm1\n\t"        // (ar*br - aj*bj)^2, ... , (ar*bj + aj*br)^2
+    "vpermilps $0x1B, %xmm1, %xmm2\n\t"     // 0123 = 00011011 = 1B
+    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
+    "vsqrtps %xmm1, %xmm1\n\t"              // Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+    "vdivps %xmm1, %xmm0, %xmm0\n\t"        // (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+
+    // push
+    "sub $16, %rsp \n\t"
+    "vextractps $0, %xmm0, (%rsp) \n\t"
+    "flds (%rsp) \n\t"
+    // push
+    "sub $16, %rsp \n\t"
+    "vextractps $3, %xmm0, (%rsp) \n\t"
+    "flds (%rsp) \n\t"
+    "fpatan \n\t"
+    "fstps (%rsp) \n\t"
+
+    // B I G pop
+    "vmovq (%rsp), %xmm0 \n\t"
+    "add $32, %rsp \n\t"
+
+    "movl $0x40490fdb, %edx\n\t" // Pi
+    "vmovq %rdx, %xmm1\n\t"
+    "vpbroadcastq %xmm1, %xmm1\n\t"
+    "vdivps %xmm1, %xmm0, %xmm0\n\t"
+
+    "vcvttps2dq %xmm0, %xmm0\n\t"
+    "vpmulhrsw %xmm1, %xmm0, %xmm0\n\t"
+    "ret"
+);
 
 static const struct rotationMatrix PI_OVER_TWO_ROTATION = {
         {0,-1,0,-1},
@@ -200,6 +255,11 @@ static void findMaxSample(const uint32_t len) {
 
 static void demodulateFmData(const uint32_t len) {
     union m256_16 temp;
+    int i;
+    for (i = 0; i < len; i+=2) {
+        temp.v = lowPassed[i];
+        lowPassed[i] =  argzB(lowPassed[i], lowPassed[i+1]);
+    }
 
     temp.v = lowPassed[len-1];
     previousR = temp.buf[2];
@@ -254,26 +314,88 @@ static void breakit(const uint8_t *buf, const uint32_t len, const uint32_t size)
     }
 }
 
-static void initializeEnv() {
+static uint32_t initializeEnv(uint8_t *buf, uint32_t len) {
+
+    srand( time(NULL));
+
+    int i;
+    uint8_t val;
+    for (i = 0; i < len; ++i) {
+        if (i % LENGTH == 0) printf("\n");
+        buf[i] = (100 + rand()) % 255;
+        printf("%hhu, ", buf[i]);
+    }
+    printf("\n\n");
 
     const int16_t scalarP1 = rdcBlockScalar + 1;
     rdcBlockVector = _mm256_set1_epi16(rdcBlockScalar);
     rdcBlockVect1 = (union m256_16){scalarP1, 0x1, scalarP1, 0x1}.v;
     rdcBlockRVector = (union m256_16){32768/scalarP1, 0x1, 32768/scalarP1, 0x1}.v;
+
+    return i-1;
 }
 
+void multiply(int ar, int aj, int br, int bj, int *cr, int *cj)
+{
+    *cr = ar*br - aj*bj;
+    *cj = aj*br + ar*bj;
+}
 
+int polar_discriminant(int ar, int aj, int br, int bj)
+{
+    int cr, cj;
+    double angle;
+    multiply(ar, aj, br, -bj, &cr, &cj);
+    angle = atan2((double)cj, (double)cr);
+    return (int)(angle / 3.14159 * (1<<14));
+}
+
+int fm_demod(int len)
+{
+    int i, j = 0, pcm;
+    int16_t pre_r, pre_j, lp[len << 2], result[len << 1];
+
+    for (i = 0; i < len; ++i, j+=4) {
+        union m256_16 temp = {.v = lowPassed[i]};
+        lp[j] = temp.buf[0];
+        lp[j+1] = temp.buf[1];
+        lp[j+2] = temp.buf[2];
+        lp[j+3] = temp.buf[3];
+    }
+
+    pcm = polar_discriminant(lp[0], lp[1],
+                             pre_r, pre_j);
+    result[0] = (int16_t) pcm;
+    for (i = 2; i < (len<<2)-1; i += 2) {
+
+        pcm = polar_discriminant(lp[i], lp[i+1],
+                                 lp[i-2], lp[i-1]);
+
+        result[i/2] = (int16_t) pcm;
+    }
+
+    pre_r = lp[len - 2];
+    pre_j = lp[len - 1];
+
+    for (i = 0; i < len << 1; ++i) {
+        if (i % LENGTH == 0) printf("\n");
+        printf("%hd, ", result[i]);
+    }
+    printf("\n");
+
+    return len << 1;
+}
 
 int main(int argc, char **argv) {
 
-    srand( time(NULL));
+    static uint8_t *inBuf;
+    static uint32_t len = ((1 << 6) + 27 + 2) / INPUT_ELEMENT_BYTES;
 
-    static uint8_t buf[(1 << 6) + 27 + 2];
-
-    uint32_t len = sizeof(buf);// / sizeof(*buf); // no point in div by 1
+    uint8_t buf[len];
     uint32_t size = len / VECTOR_WIDTH + 1;
-    uint8_t val;
     int j, i;
+
+    inBuf = calloc(len - 2, INPUT_ELEMENT_BYTES);
 
     if (argc <= 1) {
         isCheckADCMax = 0;
@@ -297,21 +419,15 @@ int main(int argc, char **argv) {
         }
     }
 
-    initializeEnv();
+    initializeEnv(inBuf, len - 2);
 
+    memcpy(buf + 2, inBuf, len - 2);
     buf[0] = previousR;
     buf[1] = previousJ;
-    for (i = 2; i < len; ++i) {
-        if (i % LENGTH == 0) printf("\n");
-        val = (100 + rand()) % 255;
-        buf[i] = val;
-        printf("%hhu, ", val);
-        samplePowSum += val*val; // TODO implement this with data parallelism
-                                 // is there a point since it's already
-                                 // linearly looping over the self-same data
-                                 // anyway?
+
+    for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
+        samplePowSum += buf[i]*buf[i];
     }
-    printf("\n\n");
 
     samplePowSum += samplePowSum / (LENGTH*len);
 
@@ -337,25 +453,27 @@ int main(int argc, char **argv) {
 
     filterSimpleLowPass(depth);
 
-    for (j = 0, i = 4; j < depth; ++j, i+=4) {
-        if (j % (LENGTH>>1) == 0) printf("\n");
+    for (j = 0; j < depth; ++j) {
+        if (j % (LENGTH >> 2) == 0) printf("\n");
         union m256_16 w = {.v = lowPassed[j]};
 
-        printf("%hd, %hd, ", w.buf[0],w.buf[1]);
+        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
     printf("\n");
 
+    fm_demod(depth);
     demodulateFmData(depth);
 
-    for (j = 0, i = 4; j < depth; ++j, i+=4) {
-        if (j % (LENGTH>>1) == 0) printf("\n");
+    for (j = 0; j < depth; ++j) {
+        if (j % (LENGTH >> 2) == 0) printf("\n");
         union m256_16 w = {.v = lowPassed[j]};
 
-        printf("%hd, %hd, ", w.buf[0],w.buf[1]);
+        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
     }
     printf("\n");
 
     free(lowPassed);
     free(buf16x4);
     free(buf8);
+    free(inBuf);
 }
