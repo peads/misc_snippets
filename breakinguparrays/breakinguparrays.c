@@ -256,34 +256,9 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
 static void demodulateFmData(const uint32_t len) {
     int i;
     for (i = 0; i < len; i+=2) {
-        union m256_16 temp;
-//        union m256_16 a = {.v = _mm256_shufflelo_epi16(lowPassed[i+1], _MM_SHUFFLE(3,2,2,3))};
-//        union m256_16 b = {.v = _mm256_shufflelo_epi16(lowPassed[i], _MM_SHUFFLE(0,0,1,1))};
-        union m256_32{
-            __m256i v;
-            int32_t buf[4];
-        };
-//        union m256_32 b = {mm256Epi16convertEpi32(
-//        _mm256_shufflelo_epi16(lowPassed[i], _MM_SHUFFLE(0,0,1,1)))}; 00 11 = 05
-//        union m256_32 a = {mm256Epi16convertEpi32(
-//        _mm256_shufflelo_epi16(lowPassed[i+1], _MM_SHUFFLE(3,2,2,3)))}; 32 23 = 1110 1011 = EB
-
-//        printf("%X %X\n", _MM_SHUFFLE(0,0,1,1), _MM_SHUFFLE(3,2,2,3)); 3201
-
-        if (i % (LENGTH>>1) == 0) printf("\n");
-
-        union m256_f {
-            __m256 v;
-            float buf[4];
-        } v = {.v = argzB(lowPassed[i], lowPassed[i+1])};
-
-        v.v = _mm256_mul_ps(FIXED_PT_SCALE, v.v); // angle * 2^14/Pi
-
-
-        temp.v = _mm256_cvtps_epi32(v.v);
-        printf("%hd, %hd, %hd, %hd, ", temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
+        lowPassed[i] = _mm256_cvtps_epi32(_mm256_mul_ps(FIXED_PT_SCALE, // angle * 2^14/Pi
+                                    argzB(lowPassed[i], lowPassed[i+1])));
     }
-    printf("\n");
 
     union m256_16 temp;
     temp.v = lowPassed[len-1];
@@ -375,7 +350,7 @@ int polar_discriminant(int ar, int aj, int br, int bj)
 {
     int cr, cj;
     double angle;
-    multiply(ar, aj, br, -bj, &cr, &cj);
+    multiply(ar, aj, br, bj, &cr, &cj);
     angle = atan2((double)cj, (double)cr);
     return (int)(angle / 3.14159 * (1<<14));
 }
@@ -385,13 +360,17 @@ int fm_demod(int len)
     int i, j = 0, pcm;
     int16_t pre_r, pre_j, lp[len << 2], result[len << 1];
 
-    for (i = 0; i < len; ++i, j+=4) {
-        union m256_16 temp = {.v = lowPassed[i]};
+    for (i = 0; i < len; i+=2, j+=4) {
+        if (j % (LENGTH) == 0) printf("\n");
+        union m256_16 temp = {.v = _mm256_unpacklo_epi16(lowPassed[i], lowPassed[i+1])};
         lp[j] = temp.buf[0];
-        lp[j+1] = temp.buf[1];
-        lp[j+2] = temp.buf[2];
+        lp[j+1] = temp.buf[2];
+        lp[j+2] = temp.buf[1];
         lp[j+3] = temp.buf[3];
+
+        printf("%hd, %hd, %hd, %hd, ",  lp[j], lp[j+1], lp[j+2], lp[j+3]);
     }
+    printf("\n");
 
     pcm = polar_discriminant(lp[0], lp[1],
                              pre_r, pre_j);
@@ -407,9 +386,9 @@ int fm_demod(int len)
     pre_r = lp[len - 2];
     pre_j = lp[len - 1];
 
-    for (i = 0; i < len << 1; ++i) {
-        if (i % LENGTH == 0) printf("\n");
-        printf("%hd, ", result[i]);
+    for (i = 0; i < len; i+=4) {
+        printf("\n");
+        printf("%hd, %hd, %hd, %hd, ",  result[i], result[i+1], result[i+2], result[i+3]);
     }
     printf("\n");
 
@@ -492,13 +471,13 @@ int main(int argc, char **argv) {
     fm_demod(depth);
     demodulateFmData(depth);
 
-//    for (j = 0; j < depth; ++j) {
-//        if (j % (LENGTH >> 2) == 0) printf("\n");
-//        union m256_16 w = {.v = lowPassed[j]};
-//
-//        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
-//    }
-//    printf("\n");
+    for (j = 0; j < depth; ++j) {
+        if (j % (LENGTH >> 1) == 0) printf("\n");
+        union m256_16 w = {.v = lowPassed[j]};
+
+        printf("%hd, %hd, %hd, %hd, ", w.buf[0],w.buf[1], w.buf[2], w.buf[3]);
+    }
+    printf("\n");
 
     free(lowPassed);
     free(buf16x4);
