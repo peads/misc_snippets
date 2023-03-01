@@ -48,8 +48,9 @@ static const __m256i ZERO = {0, 0, 0, 0};
 static const __m256i ONE = {1, 1, 1, 1};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
-static const __m256 PIS_F
-    = {3.14159274, 3.14159274, 3.14159274, 3.14159274, 3.14159274, 3.14159274, 3.14159274, 3.14159274};
+static const __m256 M_1_PI_SS
+    = {0.318309873, 0.318309873, 0.318309873, 0.318309873, 0.318309873, 0.318309873, 0.318309873, 0.318309873};
+static const __m256 FIXED_PT_SCALE = {16384, 16384, 16384, 16384, 16384, 16384, 16384, 16384};
 
 /**
  * takes four float representing the complex numbers
@@ -274,12 +275,8 @@ static void demodulateFmData(const uint32_t len) {
             float buf[4];
         } v = {.v = argzB(lowPassed[i], lowPassed[i+1])};
 
-        float pi = (float)M_1_PI;
-        float two = (float) (1<<14);
-        union m256_f u = {.v = _mm256_broadcast_ss(&pi)};
-        v.v = _mm256_mul_ps(u.v, v.v);
-        u.v = _mm256_broadcast_ss(&two);
-        v.v = _mm256_mul_ps(u.v, v.v);
+        v.v = _mm256_mul_ps(M_1_PI_SS, v.v);
+        v.v = _mm256_mul_ps(FIXED_PT_SCALE, v.v);
 
 
         temp.v = _mm256_cvtps_epi32(v.v);
