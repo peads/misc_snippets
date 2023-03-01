@@ -53,21 +53,24 @@ static const __m256i Z // all 127s
  * (ar + iaj) * (br + ibj), * s.t. z = {ar, aj, br, bj}
  * and return their argument.
  **/
-extern __m256 argzB(__m256 z);
+extern __m256 argzB(__m256i a, __m256i b);
 __asm__(
 #ifdef __clang__
 "_argzB: "
 #else
 "argzB: "
 #endif
-    "vpermilps $0x5, %xmm0, %xmm1\n\t" // ar, br, aj, bj => (aj, aj, ar, ar)  and (bj, br, br, bj)
-    "vpermilps $0xC, %xmm0, %xmm0\n\t" // aj, aj, ar, ar (50) 0000 1100
-//    "vmovq %xmm1, %xmm0\n\t"
+    "vpshuflw $0x05, %xmm0, %xmm0\n\t" // ar, br, aj, bj => (aj, aj, ar, ar)
+    "vpshuflw $0xEB, %xmm1, %xmm1\n\t" // and               (bj, br, br, bj)
+    "vpmovsxwd %xmm0, %xmm0\n\t"
+    "vpmovsxwd %xmm1, %xmm1\n\t"
+    "vcvtdq2ps %xmm0, %xmm0\n\t"
+    "vcvtdq2ps %xmm1, %xmm1\n\t"
 
+    "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
+    "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br // WRONG B1 = 1011 0001, 1000 1101
+    "vaddsubps %xmm0, %xmm3, %xmm0\n\t"     // ar*br - aj*bj, ... [don't care] ... , ar*bj + aj*br
 "ret\n\t"
-    "vmulps %xmm0, %xmm1, %xmm0\n\t"        // aj*bj, ar*br, aj*br, ar*bj
-    "vpermilps $0xB1, %xmm0, %xmm3\n\t"
-    "vaddsubps %xmm0, %xmm3, %xmm0\n\t"     // ar*br - aj*bj, ... , ar*bj + aj*br
     "vmulps %xmm0, %xmm0, %xmm1\n\t"        // (ar*br - aj*bj)^2, ... , (ar*bj + aj*br)^2
     "vpermilps $0x1B, %xmm1, %xmm2\n\t"     // 0123 = 00011011 = 1B
     "vaddps %xmm2, %xmm1, %xmm1\n\t"        // (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
@@ -185,7 +188,7 @@ static inline __m256i mm256Epi16convertEpi32(__m256i data) {
     return _mm256_cvtepi16_epi32(lo_lane);
 }
 /**
- * Takes a 4x4 matrix and applied it to a 4x1 vector.
+ * Takes a 4x4 matrix and applies it to a 4x1 vector.
  * Here, it is used to apply the same rotation matrix to
  * two complex numbers. i.e., for the the matrix
  * T = {{a,b}, {c,d}} and two vectors {u1,u2} and {v1,v2}
@@ -300,19 +303,27 @@ static void demodulateFmData(const uint32_t len) {
     int i;
     for (i = 0; i < len; i+=2) {
         union m256_16 temp;
-        union m256_16 a = {.v = _mm256_shufflelo_epi16(lowPassed[i+1], _MM_SHUFFLE(3,2,2,3))};
-        union m256_16 b = {.v = _mm256_shufflelo_epi16(lowPassed[i], _MM_SHUFFLE(0,0,1,1))};
+//        union m256_16 a = {.v = _mm256_shufflelo_epi16(lowPassed[i+1], _MM_SHUFFLE(3,2,2,3))};
+//        union m256_16 b = {.v = _mm256_shufflelo_epi16(lowPassed[i], _MM_SHUFFLE(0,0,1,1))};
+        union m256_32{
+            __m256i v;
+            int32_t buf[4];
+        };
+//        union m256_32 b = {mm256Epi16convertEpi32(
+//        _mm256_shufflelo_epi16(lowPassed[i], _MM_SHUFFLE(0,0,1,1)))}; 00 11 = 05
+//        union m256_32 a = {mm256Epi16convertEpi32(
+//        _mm256_shufflelo_epi16(lowPassed[i+1], _MM_SHUFFLE(3,2,2,3)))}; 32 23 = 1110 1011 = EB
+
+//        printf("%X %X\n", _MM_SHUFFLE(0,0,1,1), _MM_SHUFFLE(3,2,2,3)); 3201
 
         if (i % (LENGTH>>1) == 0) printf("\n");
-//        temp.v = lowPassed[i];
+
         union {
             __m256 v;
             float buf[4];
-        } v = {.v = _mm256_castsi256_ps(mm256Epi16convertEpi32(lowPassed[i]))};//argzB()};
+        } v = {.v = argzB(lowPassed[i], lowPassed[i+1])};//_mm256_cvtepi32_ps(b.v)};
 
-        v.v = _mm256_permute_ps(v.v, _MM_SHUFFLE(3,2,2,3));
-
-        temp.v = _mm256_castsi256_ps(v.v);
+        temp.v = _mm256_cvtps_epi32(v.v);
         printf("%hd, %hd, %hd, %hd, ", temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
     printf("\n");
