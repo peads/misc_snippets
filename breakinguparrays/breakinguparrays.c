@@ -68,8 +68,9 @@ __asm__(
     "vcvtdq2ps %xmm1, %xmm1\n\t"
 
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
-    "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br // WRONG B1 = 1011 0001, 1000 1101
-    "vaddsubps %xmm0, %xmm3, %xmm0\n\t"     // ar*br - aj*bj, ... [don't care] ... , ar*bj + aj*br
+    "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br // WRONG B1 = 1011 0001, 1000 1101 = 8D = 20 31 // ALSO WRONG flipped ar*br - aj*bj calc
+                                            // aj*br, ar*bj, aj*bj, ar*br
+    "vaddsubps %xmm3, %xmm0, %xmm0\n\t"     // ar*br - aj*bj, ... [don't care] ... , ar*bj + aj*br
 "ret\n\t"
     "vmulps %xmm0, %xmm0, %xmm1\n\t"        // (ar*br - aj*bj)^2, ... , (ar*bj + aj*br)^2
     "vpermilps $0x1B, %xmm1, %xmm2\n\t"     // 0123 = 00011011 = 1B
