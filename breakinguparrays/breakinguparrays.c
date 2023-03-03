@@ -247,16 +247,18 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
     sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
 }
 
-static uint64_t demodulateFmData(const uint32_t len, __m256i **result) {
+static uint64_t demodulateFmData(const uint32_t len, int16_t **result) {
 
     uint64_t i;
 
-    *result = calloc(len >> 1, sizeof(__m256i));
+    *result = calloc(len >> 1, sizeof(int16_t));
 
     for (i = 0; i < len; i+=2) {
-        (*result)[i >> 1] = _mm256_cvtps_epi32(_mm256_mul_ps(FIXED_PT_SCALE, // angle * 2^14/Pi
-                                    argzB(lowPassed[i],
-                                          _mm256_mullo_epi16(lowPassed[i+1], NEGATE_B_IM))));
+        (*result)[i >> 1] = (union m256_16){.v =
+                _mm256_cvtps_epi32(
+                _mm256_mul_ps(FIXED_PT_SCALE,
+                    argzB(lowPassed[i],
+                          _mm256_mullo_epi16(lowPassed[i+1], NEGATE_B_IM))))}.buf[0];
     }
 
     union m256_16 temp;
@@ -399,7 +401,7 @@ int main(int argc, char **argv) {
     static FILE *file;
     int j, i;
     uint64_t depth;
-    __m256i *result;
+    int16_t *result;
 #ifdef DEBUG
     uint8_t dbgBuf[MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES];
     memcpy(dbgBuf, inBuf, MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES);
@@ -446,9 +448,7 @@ int main(int argc, char **argv) {
     depth = demodulateFmData(depth, &result);
 
     file = fopen("out1.dat", "wb");
-    for (i = 0; i < depth; ++i) {
-        fwrite((union m256_16){.v = result[i]}.buf, OUTPUT_ELEMENT_BYTES, 4, file);
-    }
+    fwrite(result, sizeof(int16_t), depth, file);
     fclose(file);
 
     free(lowPassed);
