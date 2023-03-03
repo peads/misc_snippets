@@ -326,81 +326,26 @@ static void initializeEnv(void) {
     rdcBlockRVector = (union m256_16){32768/scalarP1, 0x1, 32768/scalarP1, 0x1}.v;
 }
 
-void multiply(int ar, int aj, int br, int bj, int *cr, int *cj)
-{
-    *cr = ar*br - aj*bj;
-    *cj = aj*br + ar*bj;
-}
-
-int polar_discriminant(int ar, int aj, int br, int bj)
-{
-    int cr, cj;
-    double angle;
-    multiply(ar, aj, br, -bj, &cr, &cj);
-    angle = atan2((double)cj, (double)cr);
-    return (int)(angle / 3.14159 * (1<<14));
-}
-
-void fm_demod(int len)
-{
-    int i, j = 0, pcm;
-    int16_t pre_r, pre_j, *lp, *result;//lp[len << 2], result[len << 1];
-
-    lp = calloc(len << 2, INPUT_ELEMENT_BYTES);
-    result = calloc(len << 2, INPUT_ELEMENT_BYTES);
-
-    for (i = 0; i < len; i+=2, j+=4) {
-
-        union m256_16 temp = {.v = _mm256_unpacklo_epi16(lowPassed[i], lowPassed[i+1])};
-        lp[j] = temp.buf[0];
-        lp[j+1] = temp.buf[2];
-        lp[j+2] = temp.buf[1];
-        lp[j+3] = temp.buf[3];
-    }
-
-    pcm = polar_discriminant(lp[0], lp[1],pre_r, pre_j);
-    result[0] = (int16_t) pcm;
-
-    for (i = 2; i < (len<<2)-1; i += 2) {
-
-        pcm = polar_discriminant(lp[i], lp[i+1],lp[i-2], lp[i-1]);
-
-        result[i/2] = (int16_t) pcm;
-    }
-
-    pre_r = lp[len - 2];
-    pre_j = lp[len - 1];
-
-    free(lp);
-
-    FILE *file = fopen("out.dat", "wb");
-    fwrite(result, sizeof(short), (i>>2), file);
-    fclose(file);
-
-    free(result);
-}
-
 int main(int argc, char **argv) {
-    static uint8_t previousR, previousJ;
-    static uint8_t *inBuf;
-    uint32_t len = readFileData("FMcapture1.dat", &inBuf) + 2; //((1 << 6) + 27 + 2)
-    uint8_t *buf = calloc(len, INPUT_ELEMENT_BYTES);
-    static FILE *file;
+    uint8_t previousR, previousJ;
+    uint8_t *inBuf;
+    FILE *file;
+    char *inPath, *outPath;
     int i;
     uint64_t depth;
     float *result;
-#ifdef DEBUG
-    uint8_t dbgBuf[MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES];
-    memcpy(dbgBuf, inBuf, MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES);
-#endif
 
-    if (argc <= 1) {
+    if (argc <= 2) {
+        return -1;
+    } else {
         isCheckADCMax = 0;
-        isRdc = 1;
+        isRdc = 0;
         isOffsetTuning = 0;
 //        downsample = 2;
-    } else {
-        for (i = 0; i < argc; ++i) {
+        inPath = argv[1];
+        outPath = argv[2];
+
+        for (i = 3; i < argc; ++i) {
             switch (argv[i][0]){
                 case 'r':
                     isRdc = 1;
@@ -417,6 +362,9 @@ int main(int argc, char **argv) {
     }
 
     initializeEnv();
+
+    uint32_t len = readFileData(inPath, &inBuf) + 2; //((1 << 6) + 27 + 2)
+    uint8_t *buf = calloc(len, INPUT_ELEMENT_BYTES);
 
     buf[0] = previousR;
     buf[1] = previousJ;
@@ -437,12 +385,11 @@ int main(int argc, char **argv) {
 
     free(buf16x4);
 
-    fm_demod(depth);
     depth = demodulateFmData(depth, &result);
 
     free(lowPassed);
 
-    file = fopen("out1.dat", "wb");
+    file = fopen(outPath, "wb");
     fwrite(result, OUTPUT_ELEMENT_BYTES, depth, file);
     fclose(file);
 
