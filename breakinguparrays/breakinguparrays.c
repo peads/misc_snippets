@@ -247,16 +247,15 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
     sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
 }
 
-static uint64_t demodulateFmData(const uint32_t len, int16_t **result) {
+static uint64_t demodulateFmData(const uint32_t len, float **result) {
 
     uint64_t i;
 
-    *result = calloc(len >> 1, sizeof(int16_t));
+    *result = calloc(len >> 1, sizeof(float));
 
-    for (i = 0; i < len; i+=2) {
-        (*result)[i >> 1]
-            = (int16_t) (FIXED_PT_SCALE * argzB(lowPassed[i],
-            _mm256_mullo_epi16(lowPassed[i+1], NEGATE_B_IM)));
+    for (i = 0; i < len; i++) {
+        (*result)[i >> 1]= argzB(lowPassed[i],
+            _mm256_mullo_epi16(lowPassed[i+1], NEGATE_B_IM));
     }
 
     union m256_16 temp;
@@ -399,7 +398,7 @@ int main(int argc, char **argv) {
     static FILE *file;
     int j, i;
     uint64_t depth;
-    int16_t *result;
+    float *result;
 #ifdef DEBUG
     uint8_t dbgBuf[MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES];
     memcpy(dbgBuf, inBuf, MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES);
@@ -407,7 +406,7 @@ int main(int argc, char **argv) {
 
     if (argc <= 1) {
         isCheckADCMax = 0;
-        isRdc = 0;
+        isRdc = 1;
         isOffsetTuning = 0;
 //        downsample = 2;
     } else {
@@ -446,7 +445,7 @@ int main(int argc, char **argv) {
     depth = demodulateFmData(depth, &result);
 
     file = fopen("out1.dat", "wb");
-    fwrite(result, sizeof(int16_t), depth, file);
+    fwrite(result, sizeof(float), depth, file);
     fclose(file);
 
     free(lowPassed);
