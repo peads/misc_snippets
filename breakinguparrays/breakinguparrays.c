@@ -24,8 +24,8 @@
 #define INPUT_ELEMENT_BYTES 1
 #define LOG2_LENGTH 4
 #define LENGTH (1 << LOG2_LENGTH)
-//#define DEFAULT_BUF_SIZE		32768
-//#define MAXIMUM_BUF_SIZE		(DEFAULT_BUF_SIZE << LOG2_LENGTH)
+#define DEFAULT_BUF_SIZE		32768
+#define MAXIMUM_BUF_SIZE		1L << 33
 // therefore, max depth is  MAXIMUM_BUF_SIZE >> 2
 
 union m256_16 {
@@ -41,6 +41,7 @@ struct rotationMatrix {
 static const uint32_t VECTOR_WIDTH = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
 //static const __m256i ZERO = {0, 0, 0, 0};
 //static const __m256i ONE = {1, 1, 1, 1};
+static const __m256i NEGATE_BJ = {-281466386841599, 0, 0, 0};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 static const __m256 FIXED_PT_SCALE // 2^14/Pi
@@ -100,6 +101,12 @@ static const struct rotationMatrix THREE_PI_OVER_TWO_ROTATION = {
         {0,1, 0,1},
             {-1,0, -1,0}
 };
+
+static const struct rotationMatrix CONJ_ROTATION = {
+        {1, 0,1, 0},
+        {0, -1,0, -1}
+};
+
 
 static uint8_t sampleMax = 0;
 static uint8_t isCheckADCMax;
@@ -206,7 +213,7 @@ static void rotateForNonOffsetTuning(const uint32_t len) {
     int i, j;
 
     for(i = 0, j = 0; i < len; ++i, j+=4) {
-        buf16x4[i] = applyRotationMatrix(PI_OVER_TWO_ROTATION, buf16x4[i]);
+        buf16x4[i] = applyRotationMatrix(CONJ_ROTATION, buf16x4[i]);
     }
 }
 
@@ -241,6 +248,8 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
 static void demodulateFmData(const uint32_t len) {
     int i;
     for (i = 0; i < len<<1; i++) {
+        __m256i a = (union m256_16){1,-1,1,-1}.v;//{.v = lowPassed[i+1]}
+        _mm256_mullo_epi16(lowPassed[i+1], a);
         lowPassed[i] = _mm256_cvtps_epi32(_mm256_mul_ps(FIXED_PT_SCALE, // angle * 2^14/Pi
                                     argzB(lowPassed[i], lowPassed[i+1])));
     }
@@ -302,26 +311,22 @@ static uint32_t convertTo16BitNx4Matrix(const uint8_t *buf, const uint32_t len) 
 
     return depth;
 }
+static inline uint32_t readFileData(char *path, uint8_t **buf) {
+    *buf = calloc(MAXIMUM_BUF_SIZE, INPUT_ELEMENT_BYTES);
+    FILE *file = fopen(path, "rb");
+    uint32_t result = fread(*buf, sizeof(char), MAXIMUM_BUF_SIZE, file);
 
-static uint32_t initializeEnv(uint8_t *buf, uint32_t len) {
+    fclose(file);
 
-    srand( time(NULL));
+    return result;
+}
 
-    int i;
-
-    for (i = 0; i < len; ++i) {
-        if (i % LENGTH == 0) printf("\n");
-        buf[i] = (100 + rand()) % 255;
-        printf("%hhu, ", buf[i]);
-    }
-    printf("\n\n");
+static void initializeEnv(void) {
 
     const int16_t scalarP1 = rdcBlockScalar + 1;
     rdcBlockVector = _mm256_set1_epi16(rdcBlockScalar);
     rdcBlockVect1 = (union m256_16){scalarP1, 0x1, scalarP1, 0x1}.v;
     rdcBlockRVector = (union m256_16){32768/scalarP1, 0x1, 32768/scalarP1, 0x1}.v;
-
-    return i-1;
 }
 
 void multiply(int ar, int aj, int br, int bj, int *cr, int *cj)
@@ -334,7 +339,7 @@ int polar_discriminant(int ar, int aj, int br, int bj)
 {
     int cr, cj;
     double angle;
-    multiply(ar, aj, br, bj, &cr, &cj);
+    multiply(ar, aj, br, -bj, &cr, &cj);
     angle = atan2((double)cj, (double)cr);
     return (int)(angle / 3.14159 * (1<<14));
 }
@@ -342,7 +347,10 @@ int polar_discriminant(int ar, int aj, int br, int bj)
 int fm_demod(int len)
 {
     int i, j = 0, pcm;
-    int16_t pre_r, pre_j, lp[len << 2], result[len << 1];
+    int16_t pre_r, pre_j, *lp, *result;//lp[len << 2], result[len << 1];
+
+    lp = calloc(len << 2, INPUT_ELEMENT_BYTES);
+    result = calloc(len << 2, INPUT_ELEMENT_BYTES);
 
     for (i = 0; i < len; i+=2, j+=4) {
 //        if (j % (LENGTH) == 0) printf("\n");
@@ -356,24 +364,27 @@ int fm_demod(int len)
     }
 //    printf("\n");
 
-    pcm = polar_discriminant(lp[0], lp[1],
-                             pre_r, pre_j);
+    pcm = polar_discriminant(lp[0], lp[1],pre_r, pre_j);
     result[0] = (int16_t) pcm;
+
     for (i = 2; i < (len<<2)-1; i += 2) {
 
-        pcm = polar_discriminant(lp[i], lp[i+1],
-                                 lp[i-2], lp[i-1]);
+        pcm = polar_discriminant(lp[i], lp[i+1],lp[i-2], lp[i-1]);
 
         result[i/2] = (int16_t) pcm;
     }
 
-//    pre_r = lp[len - 2];
-//    pre_j = lp[len - 1];
+    pre_r = lp[len - 2];
+    pre_j = lp[len - 1];
 
-    for (i = 0; i < len; i+=4) {
-        printf("%hd, %hd, %hd, %hd, ",  result[i], result[i+1], result[i+2], result[i+3]);
-        printf("\n");
-    }
+//    for (i = 0; i < len; i+=4) {
+//        printf("%hd, %hd, %hd, %hd, ",  result[i], result[i+1], result[i+2], result[i+3]);
+//        printf("\n");
+//    }
+
+    FILE *file = fopen("out.dat", "wb");
+    fwrite(result, sizeof(short), (i>>1), file);
+    fclose(file);
 
     return len << 1;
 }
@@ -381,12 +392,14 @@ int fm_demod(int len)
 int main(int argc, char **argv) {
 
     static uint8_t *inBuf;
-    static uint32_t len = ((1 << 6) + 27 + 2) / INPUT_ELEMENT_BYTES;
-
-    uint8_t buf[len];
+    uint32_t len = readFileData("FMcapture1.dat", &inBuf) + 2; //((1 << 6) + 27 + 2) / INPUT_ELEMENT_BYTES;
+    uint8_t *buf = calloc(len + 2, INPUT_ELEMENT_BYTES);
+    FILE *file;
     int j, i;
-
-    inBuf = calloc(len - 2, INPUT_ELEMENT_BYTES);
+#ifdef DEBUG
+    uint8_t dbgBuf[MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES];
+    memcpy(dbgBuf, inBuf, MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES);
+#endif
 
     if (argc <= 1) {
         isCheckADCMax = 0;
@@ -410,7 +423,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    initializeEnv(inBuf, len - 2);
+    initializeEnv();
 
     memcpy(buf + 2, inBuf, len - 2);
     buf[0] = previousR;
@@ -428,13 +441,13 @@ int main(int argc, char **argv) {
     fm_demod(depth);
     demodulateFmData(depth);
 
-    for (j = 0; j < depth; j++) {
-        if (j % 4 == 0) printf("\n");
-        union m256_16 w = {.v = lowPassed[j]};
-
-        printf("%hd, ", w.buf[0]);
-    }
-    printf("\n");
+//    for (j = 0; j < depth; j++) {
+//        if (j % 4 == 0) printf("\n");
+//        union m256_16 w = {.v = lowPassed[j]};
+//
+//        printf("%hd, ", w.buf[0]);
+//    }
+//    printf("\n");
 
     free(lowPassed);
     free(buf16x4);
