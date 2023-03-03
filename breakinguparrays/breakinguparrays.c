@@ -26,9 +26,9 @@
 #define OUTPUT_ELEMENT_BYTES 2
 #define LOG2_LENGTH 4
 #define LENGTH (1 << LOG2_LENGTH)
-#define DEFAULT_BUF_SIZE		32768
 #define MAXIMUM_BUF_SIZE		1L << 33
-// therefore, max depth is  MAXIMUM_BUF_SIZE >> 2
+// 2^14/Pi
+#define FIXED_PT_SCALE 5215.18896
 
 union m256_16 {
     int16_t buf[4];
@@ -46,15 +46,15 @@ static const uint32_t VECTOR_WIDTH = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
 static const __m256i NEGATE_B_IM = {-281466386841599, 0, 0, 0};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
-static const __m256 FIXED_PT_SCALE // 2^14/Pi
-    = {5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896};
+//static const __m256 FIXED_PT_SCALE
+//    = {5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896};
 
 /**
  * Takes two packed int16_ts representing the complex numbers
  * (ar + iaj), (br + ibj), s.t. z = {ar, br, aj, bj}
  * and returns their argument as a packed f32
  **/
-extern __m256 argzB(__m256i a, __m256i b);
+extern float argzB(__m256i a, __m256i b);
 __asm__(
 #ifdef __clang__
 "_argzB: "
@@ -254,11 +254,9 @@ static uint64_t demodulateFmData(const uint32_t len, int16_t **result) {
     *result = calloc(len >> 1, sizeof(int16_t));
 
     for (i = 0; i < len; i+=2) {
-        (*result)[i >> 1] = (union m256_16){.v =
-                _mm256_cvtps_epi32(
-                _mm256_mul_ps(FIXED_PT_SCALE,
-                    argzB(lowPassed[i],
-                          _mm256_mullo_epi16(lowPassed[i+1], NEGATE_B_IM))))}.buf[0];
+        (*result)[i >> 1]
+            = (int16_t) (FIXED_PT_SCALE * argzB(lowPassed[i],
+            _mm256_mullo_epi16(lowPassed[i+1], NEGATE_B_IM)));
     }
 
     union m256_16 temp;
