@@ -22,6 +22,8 @@
 
 // sizeof(uint8_t)
 #define INPUT_ELEMENT_BYTES 1
+// sizeof(int16_t)
+#define OUTPUT_ELEMENT_BYTES 2
 #define LOG2_LENGTH 4
 #define LENGTH (1 << LOG2_LENGTH)
 #define DEFAULT_BUF_SIZE		32768
@@ -245,10 +247,14 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
     sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
 }
 
-static void demodulateFmData(const uint32_t len) {
-    int i;
-    for (i = 0; i < len<<1; i++) {
-        lowPassed[i] = _mm256_cvtps_epi32(_mm256_mul_ps(FIXED_PT_SCALE, // angle * 2^14/Pi
+static uint64_t demodulateFmData(const uint32_t len, __m256i **result) {
+
+    uint64_t i;
+
+    *result = calloc(len >> 1, sizeof(__m256i));
+
+    for (i = 0; i < len; i+=2) {
+        (*result)[i >> 1] = _mm256_cvtps_epi32(_mm256_mul_ps(FIXED_PT_SCALE, // angle * 2^14/Pi
                                     argzB(lowPassed[i],
                                           _mm256_mullo_epi16(lowPassed[i+1], NEGATE_B_IM))));
     }
@@ -257,6 +263,8 @@ static void demodulateFmData(const uint32_t len) {
     temp.v = lowPassed[len-1];
     previousR = temp.buf[2];
     previousJ = temp.buf[3];
+
+    return i >> 1;
 }
 
 
@@ -344,7 +352,7 @@ int polar_discriminant(int ar, int aj, int br, int bj)
     return (int)(angle / 3.14159 * (1<<14));
 }
 
-int fm_demod(int len)
+void fm_demod(int len)
 {
     int i, j = 0, pcm;
     int16_t pre_r, pre_j, *lp, *result;//lp[len << 2], result[len << 1];
@@ -374,16 +382,13 @@ int fm_demod(int len)
     pre_r = lp[len - 2];
     pre_j = lp[len - 1];
 
-//    for (i = 0; i < len; i+=4) {
-//        printf("%hd, %hd, %hd, %hd, ",  result[i], result[i+1], result[i+2], result[i+3]);
-//        printf("\n");
-//    }
+    free(lp);
 
     FILE *file = fopen("out.dat", "wb");
     fwrite(result, sizeof(short), (i>>2), file);
     fclose(file);
 
-    return len << 1;
+    free(result);
 }
 
 int main(int argc, char **argv) {
@@ -391,8 +396,10 @@ int main(int argc, char **argv) {
     static uint8_t *inBuf;
     uint32_t len = readFileData("FMcapture1.dat", &inBuf) + 2; //((1 << 6) + 27 + 2) / INPUT_ELEMENT_BYTES;
     uint8_t *buf = calloc(len + 2, INPUT_ELEMENT_BYTES);
-    FILE *file;
+    static FILE *file;
     int j, i;
+    uint64_t depth;
+    __m256i *result;
 #ifdef DEBUG
     uint8_t dbgBuf[MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES];
     memcpy(dbgBuf, inBuf, MAXIMUM_BUF_SIZE * INPUT_ELEMENT_BYTES);
@@ -431,20 +438,18 @@ int main(int argc, char **argv) {
     }
     samplePowSum += samplePowSum / (LENGTH*len);
 
-    int depth = convertTo16BitNx4Matrix(buf, len);
+    depth = convertTo16BitNx4Matrix(buf, len);
 
     filterSimpleLowPass(depth);
 
     fm_demod(depth);
-    demodulateFmData(depth);
+    depth = demodulateFmData(depth, &result);
 
-//    for (j = 0; j < depth; j++) {
-//        if (j % 4 == 0) printf("\n");
-//        union m256_16 w = {.v = lowPassed[j]};
-//
-//        printf("%hd, ", w.buf[0]);
-//    }
-//    printf("\n");
+    file = fopen("out1.dat", "wb");
+    for (i = 0; i < depth; ++i) {
+        fwrite((union m256_16){.v = result[i]}.buf, OUTPUT_ELEMENT_BYTES, 4, file);
+    }
+    fclose(file);
 
     free(lowPassed);
     free(buf16x4);
