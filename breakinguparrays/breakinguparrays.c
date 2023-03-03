@@ -22,13 +22,11 @@
 
 // sizeof(uint8_t)
 #define INPUT_ELEMENT_BYTES 1
-// sizeof(int16_t)
-#define OUTPUT_ELEMENT_BYTES 2
+// sizeof(float)
+#define OUTPUT_ELEMENT_BYTES 4
 #define LOG2_LENGTH 4
 #define LENGTH (1 << LOG2_LENGTH)
-#define MAXIMUM_BUF_SIZE		1L << 33
-// 2^14/Pi
-#define FIXED_PT_SCALE 5215.18896
+#define MAXIMUM_BUF_SIZE 1L << 33
 
 union m256_16 {
     int16_t buf[4];
@@ -40,10 +38,9 @@ struct rotationMatrix {
     const union m256_16 a2;
 };
 
+static const __m256i NEGATE_B_IM = {281479271809023, 0, 0, 0};
+//static const __m256i NEGATE_B_IM = {281483566579713, 0, 0, 0};
 static const uint32_t VECTOR_WIDTH = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
-//static const __m256i ZERO = {0, 0, 0, 0};
-//static const __m256i ONE = {1, 1, 1, 1};
-static const __m256i NEGATE_B_IM = {-281466386841599, 0, 0, 0};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 //static const __m256 FIXED_PT_SCALE
@@ -52,7 +49,7 @@ static const __m256i Z // all 127s
 /**
  * Takes two packed int16_ts representing the complex numbers
  * (ar + iaj), (br + ibj), s.t. z = {ar, br, aj, bj}
- * and returns their argument as a packed f32
+ * and returns their argument as a float
  **/
 extern float argzB(__m256i a, __m256i b);
 __asm__(
@@ -123,8 +120,6 @@ static __m256i dcAvgIq = {0,0,0,0};
 static __m256i rdcBlockVector;
 static __m256i rdcBlockRVector;
 static __m256i rdcBlockVect1;
-static int16_t previousR = 0;
-static int16_t previousJ = 0;
 
 static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
     return a > b ? a : b;
@@ -160,7 +155,6 @@ static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i 
     // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
 }
 
-
 static struct rotationMatrix generateRotationMatrix(const float theta, const float phi) {
 
     int16_t cosT = cos(theta) * (1 << 13);
@@ -195,7 +189,7 @@ static void filterDcBlockRaw(const uint32_t len) {
     int i;
     for (i = 0; i < len; ++i) {
         sumIq = _mm256_add_epi16(sumIq, _mm256_add_epi16(buf16x4[i],
-                                                         _mm256_shufflelo_epi16(buf16x4[i], _MM_SHUFFLE(2, 3, 0, 1))));
+         _mm256_shufflelo_epi16(buf16x4[i], _MM_SHUFFLE(2, 3, 0, 1))));
     }
 
     avgIq = _mm256_mulhrs_epi16(sumIq, oneOverLen);
@@ -248,20 +242,16 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
 }
 
 static uint64_t demodulateFmData(const uint32_t len, float **result) {
-
     uint64_t i;
 
-    *result = calloc(len >> 1, sizeof(float));
+    *result = calloc(len >> 1, OUTPUT_ELEMENT_BYTES);
 
-    for (i = 0; i < len; i++) {
-        (*result)[i >> 1]= argzB(lowPassed[i],
-            _mm256_mullo_epi16(lowPassed[i+1], NEGATE_B_IM));
+    for (i = 0; i < len; i+=2) {
+
+        (*result)[i >> 1] = argzB(_mm256_mullo_epi16(
+                lowPassed[i],                       NEGATE_B_IM),
+                lowPassed[i+1]);
     }
-
-    union m256_16 temp;
-    temp.v = lowPassed[len-1];
-    previousR = temp.buf[2];
-    previousJ = temp.buf[3];
 
     return i >> 1;
 }
@@ -321,7 +311,7 @@ static uint32_t convertTo16BitNx4Matrix(const uint8_t *buf, const uint32_t len) 
 static inline uint32_t readFileData(char *path, uint8_t **buf) {
     *buf = calloc(MAXIMUM_BUF_SIZE, INPUT_ELEMENT_BYTES);
     FILE *file = fopen(path, "rb");
-    uint32_t result = fread(*buf, sizeof(char), MAXIMUM_BUF_SIZE, file);
+    uint32_t result = fread(*buf, INPUT_ELEMENT_BYTES, MAXIMUM_BUF_SIZE, file);
 
     fclose(file);
 
@@ -391,12 +381,12 @@ void fm_demod(int len)
 }
 
 int main(int argc, char **argv) {
-
+    static uint8_t previousR, previousJ;
     static uint8_t *inBuf;
-    uint32_t len = readFileData("FMcapture1.dat", &inBuf) + 2; //((1 << 6) + 27 + 2) / INPUT_ELEMENT_BYTES;
-    uint8_t *buf = calloc(len + 2, INPUT_ELEMENT_BYTES);
+    uint32_t len = readFileData("FMcapture1.dat", &inBuf) + 2; //((1 << 6) + 27 + 2)
+    uint8_t *buf = calloc(len, INPUT_ELEMENT_BYTES);
     static FILE *file;
-    int j, i;
+    int i;
     uint64_t depth;
     float *result;
 #ifdef DEBUG
@@ -428,9 +418,13 @@ int main(int argc, char **argv) {
 
     initializeEnv();
 
-    memcpy(buf + 2, inBuf, len - 2);
     buf[0] = previousR;
     buf[1] = previousJ;
+    memcpy(buf + 2, inBuf, len - 2);
+    previousJ = buf[len-1];
+    previousR = buf[len-2];
+
+    free(inBuf);
 
     for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
         samplePowSum += buf[i]*buf[i];
@@ -441,14 +435,16 @@ int main(int argc, char **argv) {
 
     filterSimpleLowPass(depth);
 
+    free(buf16x4);
+
     fm_demod(depth);
     depth = demodulateFmData(depth, &result);
 
+    free(lowPassed);
+
     file = fopen("out1.dat", "wb");
-    fwrite(result, sizeof(float), depth, file);
+    fwrite(result, OUTPUT_ELEMENT_BYTES, depth, file);
     fclose(file);
 
-    free(lowPassed);
-    free(buf16x4);
-    free(inBuf);
+    free(result);
 }
