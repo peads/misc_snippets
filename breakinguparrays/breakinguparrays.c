@@ -41,7 +41,7 @@ struct rotationMatrix {
 static const uint32_t VECTOR_WIDTH = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
 //static const __m256i ZERO = {0, 0, 0, 0};
 //static const __m256i ONE = {1, 1, 1, 1};
-static const __m256i NEGATE_BJ = {-281466386841599, 0, 0, 0};
+static const __m256i NEGATE_B_IM = {-281466386841599, 0, 0, 0};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 static const __m256 FIXED_PT_SCALE // 2^14/Pi
@@ -248,10 +248,9 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
 static void demodulateFmData(const uint32_t len) {
     int i;
     for (i = 0; i < len<<1; i++) {
-        __m256i a = (union m256_16){1,-1,1,-1}.v;//{.v = lowPassed[i+1]}
-        _mm256_mullo_epi16(lowPassed[i+1], a);
         lowPassed[i] = _mm256_cvtps_epi32(_mm256_mul_ps(FIXED_PT_SCALE, // angle * 2^14/Pi
-                                    argzB(lowPassed[i], lowPassed[i+1])));
+                                    argzB(lowPassed[i],
+                                          _mm256_mullo_epi16(lowPassed[i+1], NEGATE_B_IM))));
     }
 
     union m256_16 temp;
@@ -311,6 +310,7 @@ static uint32_t convertTo16BitNx4Matrix(const uint8_t *buf, const uint32_t len) 
 
     return depth;
 }
+
 static inline uint32_t readFileData(char *path, uint8_t **buf) {
     *buf = calloc(MAXIMUM_BUF_SIZE, INPUT_ELEMENT_BYTES);
     FILE *file = fopen(path, "rb");
@@ -353,16 +353,13 @@ int fm_demod(int len)
     result = calloc(len << 2, INPUT_ELEMENT_BYTES);
 
     for (i = 0; i < len; i+=2, j+=4) {
-//        if (j % (LENGTH) == 0) printf("\n");
+
         union m256_16 temp = {.v = _mm256_unpacklo_epi16(lowPassed[i], lowPassed[i+1])};
         lp[j] = temp.buf[0];
         lp[j+1] = temp.buf[2];
         lp[j+2] = temp.buf[1];
         lp[j+3] = temp.buf[3];
-
-//        printf("%hd, %hd, %hd, %hd, ",  lp[j], lp[j+1], lp[j+2], lp[j+3]);
     }
-//    printf("\n");
 
     pcm = polar_discriminant(lp[0], lp[1],pre_r, pre_j);
     result[0] = (int16_t) pcm;
@@ -383,7 +380,7 @@ int fm_demod(int len)
 //    }
 
     FILE *file = fopen("out.dat", "wb");
-    fwrite(result, sizeof(short), (i>>1), file);
+    fwrite(result, sizeof(short), (i>>2), file);
     fclose(file);
 
     return len << 1;
