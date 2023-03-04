@@ -20,6 +20,7 @@
 #include <math.h>
 #include <time.h>
 
+//#define DEBUG
 // sizeof(uint8_t)
 #define INPUT_ELEMENT_BYTES 1
 // sizeof(float)
@@ -38,8 +39,12 @@ struct rotationMatrix {
     const union m256_16 a2;
 };
 
+#ifndef DEBUG
 static const __m256i NEGATE_B_IM = {281479271809023, 0, 0, 0};
 //static const __m256i NEGATE_B_IM = {281483566579713, 0, 0, 0};
+#else
+static const __m256i NEGATE_B_IM = {281479271743489, 0, 0, 0};
+#endif
 static const uint32_t VECTOR_WIDTH = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
@@ -170,7 +175,7 @@ static struct rotationMatrix generateRotationMatrix(const float theta, const flo
 static void filterSimpleLowPass(const uint32_t len) {
     int i;
 
-    lowPassed = calloc(len << 1, sizeof(__m256i));
+    lowPassed = calloc(len, sizeof(__m256i));
 
     for (i = 0; i < len; ++i) {
         lowPassed[i]
@@ -181,7 +186,7 @@ static void filterSimpleLowPass(const uint32_t len) {
 
 static void filterDcBlockRaw(const uint32_t len) {
 
-    const __m256i oneOverLen = _mm256_set1_epi16(16384/len);
+    const __m256i oneOverLen = _mm256_set1_epi16(16384/len); // 1/(len/2) = 2/len
 
     __m256i sumIq = {0,0,0,0};
     __m256i avgIq;
@@ -281,7 +286,7 @@ static uint32_t convertTo16BitNx4Matrix(const uint8_t *buf, const uint32_t len) 
 
 
     int depth;
-    uint32_t size = len / VECTOR_WIDTH + 1;
+    uint32_t size = len / VECTOR_WIDTH + (len % 16 != 0 ? 1 : 0);
     __m256i *buf8 = calloc(size << LOG2_LENGTH, sizeof(__m256i));
 
     buf16x4 = calloc(size << LOG2_LENGTH, sizeof(__m256i));
@@ -322,18 +327,21 @@ static void initializeEnv(void) {
 
     const int16_t scalarP1 = rdcBlockScalar + 1;
     rdcBlockVector = _mm256_set1_epi16(rdcBlockScalar);
-    rdcBlockVect1 = (union m256_16){scalarP1, 0x1, scalarP1, 0x1}.v;
-    rdcBlockRVector = (union m256_16){32768/scalarP1, 0x1, 32768/scalarP1, 0x1}.v;
+    rdcBlockVect1 = _mm256_set1_epi16(scalarP1);//(union m256_16){scalarP1, 0x1, scalarP1, 0x1}.v;
+    rdcBlockRVector = _mm256_set1_epi16(32768/scalarP1);//(union m256_16){32768/scalarP1, 0x1, 32768/scalarP1, 0x1}.v;
 }
 
 int main(int argc, char **argv) {
-    uint8_t previousR, previousJ;
-    uint8_t *inBuf;
-    FILE *file;
-    char *inPath, *outPath;
     int i;
     uint64_t depth;
+    uint32_t len;
     float *result;
+#ifndef DEBUG
+    uint8_t previousR, previousJ;
+    uint8_t *inBuf;
+    char *inPath, *outPath;
+    uint8_t *buf;
+    FILE *file;
 
     if (argc <= 2) {
         return -1;
@@ -361,10 +369,8 @@ int main(int argc, char **argv) {
         }
     }
 
-    initializeEnv();
-
-    uint32_t len = readFileData(inPath, &inBuf) + 2; //((1 << 6) + 27 + 2)
-    uint8_t *buf = calloc(len, INPUT_ELEMENT_BYTES);
+    len = readFileData(inPath, &inBuf) + 2; //((1 << 6) + 27 + 2)
+    buf = calloc(len, INPUT_ELEMENT_BYTES);
 
     buf[0] = previousR;
     buf[1] = previousJ;
@@ -373,6 +379,21 @@ int main(int argc, char **argv) {
     previousR = buf[len-2];
 
     free(inBuf);
+#else
+    len = 16;
+    uint8_t buf[16] = {128,129,130,131,132,133,134,135,
+                       136,137,138,139,140,141,142,143};
+    isCheckADCMax = 0;
+    isRdc = 1;
+    isOffsetTuning = 1;
+
+    printf("%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu,\n"
+           "%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n",
+           buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
+           buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]);
+    printf("\n");
+#endif
+    initializeEnv();
 
     for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
         samplePowSum += buf[i]*buf[i];
@@ -381,7 +402,29 @@ int main(int argc, char **argv) {
 
     depth = convertTo16BitNx4Matrix(buf, len);
 
+#ifdef DEBUG
+    for (i = 0; i < depth; ++i) {
+        union m256_16 temp = {.v = buf16x4[i]};
+        printf("(%hd + %hdI),\t(%hd + %hdI)\n",
+               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
+    }
+    printf("\n");
+#endif
+
     filterSimpleLowPass(depth);
+
+#ifdef DEBUG
+    for (i = 0; i < depth; i+=2) {
+        union m256_16 temp = {.v = lowPassed[i]};
+        printf("(%hd + %hdI),\t",
+               temp.buf[0], temp.buf[1]);
+
+        temp.v = lowPassed[i+1];
+        printf("(%hd + %hdI)\n",
+            temp.buf[0], temp.buf[1]);
+    }
+    printf("\n");
+#endif
 
     free(buf16x4);
 
@@ -389,9 +432,12 @@ int main(int argc, char **argv) {
 
     free(lowPassed);
 
+#ifdef DEBUG
+    printf("%f, %f\n", result[0], result[1]);
+#else
     file = fopen(outPath, "wb");
     fwrite(result, OUTPUT_ELEMENT_BYTES, depth, file);
     fclose(file);
-
+#endif
     free(result);
 }
