@@ -26,6 +26,7 @@
 // sizeof(float)
 #define OUTPUT_ELEMENT_BYTES 4
 #define VECTOR_WIDTH 4
+#define LOG2_VECTOR_WIDTH 2
 #define MAXIMUM_BUF_SIZE 1L << 33
 
 union m256_16 {
@@ -279,7 +280,7 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m256i **
 
 
     int i, depth;
-    uint32_t count = len << 1;// len / VECTOR_WIDTH + ((len & 3) != 0 ? 1 : 0); // len % 4 != 0
+    uint32_t count = 1 << ((len >> LOG2_VECTOR_WIDTH) + ((len & 3) != 0 ? 1 : 0)); // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0)
     __m256i *buf8 = calloc(count, sizeof(__m256i));
 
     *buf16 = calloc(count, sizeof(__m256i));
@@ -337,17 +338,17 @@ int main(int argc, char **argv) {
     __m256i *buf16;
 
 #ifdef DEBUG
-    len = 16;
-    uint8_t buf[17] = {128,129,130,131,132,133,134,135,
-                       136,137,138,139,140,141,142,143, 0};
+    uint8_t buf[18] = {128,129,130,131,132,133,134,135,
+                       136,137,138,139,140,141,142,143, 0,0};
+    len = sizeof(buf)/sizeof(*buf);
     isCheckADCMax = 0;
     isRdc = 1;
     isOffsetTuning = 0;
 
-    printf("%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu,\n"
+    printf("%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n"
            "%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n",
            buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
-           buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16]);
+           buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17]);
     printf("\n");
 #else
     uint8_t previousR, previousJ;
