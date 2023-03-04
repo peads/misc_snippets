@@ -20,13 +20,12 @@
 #include <math.h>
 #include <time.h>
 
-//#define DEBUG
+#define DEBUG
 // sizeof(uint8_t)
 #define INPUT_ELEMENT_BYTES 1
 // sizeof(float)
 #define OUTPUT_ELEMENT_BYTES 4
-#define LOG2_LENGTH 4
-#define LENGTH (1 << LOG2_LENGTH)
+#define VECTOR_WIDTH 4
 #define MAXIMUM_BUF_SIZE 1L << 33
 
 union m256_16 {
@@ -45,7 +44,6 @@ static const __m256i NEGATE_B_IM = {281479271809023, 0, 0, 0};
 #else
 static const __m256i NEGATE_B_IM = {281479271743489, 0, 0, 0};
 #endif
-static const uint32_t VECTOR_WIDTH = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 //static const __m256 FIXED_PT_SCALE
@@ -106,7 +104,7 @@ static const struct rotationMatrix THREE_PI_OVER_TWO_ROTATION = {
             {-1,0, -1,0}
 };
 
-static const struct rotationMatrix CONJ_ROTATION = {
+static const struct rotationMatrix CONJ_TRANSFORM = {
         {1, 0,1, 0},
         {0, -1,0, -1}
 };
@@ -119,7 +117,6 @@ static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 static uint32_t rdcBlockScalar = 9 + 1;
 //static uint32_t downsample;
-static __m256i *buf16x4;
 static __m256i *lowPassed;
 static __m256i dcAvgIq = {0,0,0,0};
 static __m256i rdcBlockVector;
@@ -143,7 +140,7 @@ static inline __m256i mm256Epi8convertEpi16(__m256i data) {
  * concatenated, s.t. u = {u1,u2,v1,v2}
  *  -> {a*u1 + c*u1, b*u2 + d*u2, ... , b*v2 + d*v2}
  */
-static __m256i applyRotationMatrix(const struct rotationMatrix T, const __m256i u) {
+static __m256i apply4x4_4x1Transform(const struct rotationMatrix T, const __m256i u) {
     // TODO integrate abliity to use fixed point encoded values from the
     // generate function (scaling factor: 2^13)
     __m256i temp, temp1;
@@ -172,19 +169,19 @@ static struct rotationMatrix generateRotationMatrix(const float theta, const flo
     return result;
 }
 
-static void filterSimpleLowPass(const uint32_t len) {
+static void filterSimpleBox(const __m256i *buf, const uint32_t len) {
     int i;
 
     lowPassed = calloc(len, sizeof(__m256i));
 
     for (i = 0; i < len; ++i) {
         lowPassed[i]
-            = _mm256_add_epi16(buf16x4[i],
-               _mm256_shufflelo_epi16(buf16x4[i], _MM_SHUFFLE(1, 0, 3, 2)));
+            = _mm256_add_epi16(buf[i],
+               _mm256_shufflelo_epi16(buf[i], _MM_SHUFFLE(1, 0, 3, 2)));
     }
 }
 
-static void filterDcBlockRaw(const uint32_t len) {
+static void filterRawDc(__m256i *buf, const uint32_t len) {
 
     const __m256i oneOverLen = _mm256_set1_epi16(16384/len); // 1/(len/2) = 2/len
 
@@ -193,8 +190,8 @@ static void filterDcBlockRaw(const uint32_t len) {
 
     int i;
     for (i = 0; i < len; ++i) {
-        sumIq = _mm256_add_epi16(sumIq, _mm256_add_epi16(buf16x4[i],
-         _mm256_shufflelo_epi16(buf16x4[i], _MM_SHUFFLE(2, 3, 0, 1))));
+        sumIq = _mm256_add_epi16(sumIq, _mm256_add_epi16(buf[i],
+         _mm256_shufflelo_epi16(buf[i], _MM_SHUFFLE(2, 3, 0, 1))));
     }
 
     avgIq = _mm256_mulhrs_epi16(sumIq, oneOverLen);
@@ -203,36 +200,30 @@ static void filterDcBlockRaw(const uint32_t len) {
     avgIq = _mm256_mullo_epi16(avgIq, rdcBlockVect1);
 
     for (i = 0; i < len; ++i) {
-        buf16x4[i] = _mm256_sub_epi16(buf16x4[i], avgIq);
+        buf[i] = _mm256_sub_epi16(buf[i], avgIq);
     }
 
     dcAvgIq = avgIq;
 }
 
-static void rotateForNonOffsetTuning(const uint32_t len) {
+static void rotateForNonOffsetTuning(__m256i *buf, const uint32_t len) {
 
     int i, j;
 
     for(i = 0, j = 0; i < len; ++i, j+=4) {
-        buf16x4[i] = applyRotationMatrix(CONJ_ROTATION, buf16x4[i]);
+        buf[i] = apply4x4_4x1Transform(CONJ_TRANSFORM, buf[i]);
     }
 }
 
-static int splitIntoQuads(const __m256i *buf, const uint32_t len) {
+static int convertTo16Bit(const __m256i *buf, const uint32_t len, __m256i *buf16) {
 
-    int i, j, k;
+    uint32_t i;
 
-    for (j = 0, k = 0; j < len; ++j) {
-
-        union m256_16 w = {.v = mm256Epi8convertEpi16(_mm256_sub_epi8(buf[j], Z))};
-
-        for (i = 0; i < LENGTH; i += 4) {
-            buf16x4[k++]
-                = (union m256_16){w.buf[i], w.buf[i+1], w.buf[i+2], w.buf[i+3]}.v;
-        }
+    for (i = 0; i < len; ++i) {
+        buf16[i] = mm256Epi8convertEpi16(_mm256_sub_epi8(buf[i], Z));
     }
 
-    return k;
+    return i;
 }
 
 static void findMaxSample(const __m256i *buf8, const uint32_t len) {
@@ -247,6 +238,7 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
 }
 
 static uint64_t demodulateFmData(const uint32_t len, float **result) {
+
     uint64_t i;
 
     *result = calloc(len >> 1, OUTPUT_ELEMENT_BYTES);
@@ -262,52 +254,57 @@ static uint64_t demodulateFmData(const uint32_t len, float **result) {
 }
 
 
-static void breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8) {
+static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8) {
 
-    int j = 0;
-    int i;
-    long leftToProcess = len;
-    uint32_t step = INPUT_ELEMENT_BYTES << LOG2_LENGTH;
-    uint32_t chunk = step * INPUT_ELEMENT_BYTES;
+    uint32_t j = 0;
+    uint32_t i;
+    int32_t leftToProcess = len;
+
     union {
-        uint8_t buf[LENGTH];
+        uint8_t buf[VECTOR_WIDTH];
         __m256i v;
     } z;
 
-    for (i = 0; leftToProcess > 0; i += step, ++j) {
+    for (i = 0; leftToProcess > 0; i += VECTOR_WIDTH, ++j) {
 
-        memcpy(z.buf, buf + i, chunk);
+        memcpy(z.buf, buf + i, VECTOR_WIDTH);
         buf8[j] = z.v;
-        leftToProcess -= step;
+        leftToProcess -= VECTOR_WIDTH;
     }
+
+    return j;
 }
 
-static uint32_t convertTo16BitNx4Matrix(const uint8_t *buf, const uint32_t len) {
+static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m256i **buf16) {
 
 
-    int depth;
-    uint32_t size = len / VECTOR_WIDTH + (len % 16 != 0 ? 1 : 0);
-    __m256i *buf8 = calloc(size << LOG2_LENGTH, sizeof(__m256i));
+    int i, depth;
+    uint32_t count = len << 1;// len / VECTOR_WIDTH + ((len & 3) != 0 ? 1 : 0); // len % 4 != 0
+    __m256i *buf8 = calloc(count, sizeof(__m256i));
 
-    buf16x4 = calloc(size << LOG2_LENGTH, sizeof(__m256i));
+    *buf16 = calloc(count, sizeof(__m256i));
 
-    breakit(buf, len, buf8);
+    depth = breakit(buf, len, buf8);
 
     if (isCheckADCMax) {
+        for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
+            samplePowSum += buf[i]*buf[i];
+        }
+        samplePowSum += samplePowSum / len;
 
-        findMaxSample(buf8, size);
+        findMaxSample(buf8, depth);
     }
 
-    depth = splitIntoQuads(buf8, size);
+    depth = convertTo16Bit(buf8, depth, *buf16);
 
     free(buf8);
 
     if (isRdc) {
-        filterDcBlockRaw(depth);
+        filterRawDc(*buf16, depth);
     }
 
     if (!isOffsetTuning) {
-        rotateForNonOffsetTuning(depth);
+        rotateForNonOffsetTuning(*buf16, depth);
     }
 
     return depth;
@@ -332,11 +329,27 @@ static void initializeEnv(void) {
 }
 
 int main(int argc, char **argv) {
+
     int i;
     uint64_t depth;
     uint32_t len;
     float *result;
-#ifndef DEBUG
+    __m256i *buf16;
+
+#ifdef DEBUG
+    len = 16;
+    uint8_t buf[17] = {128,129,130,131,132,133,134,135,
+                       136,137,138,139,140,141,142,143, 0};
+    isCheckADCMax = 0;
+    isRdc = 1;
+    isOffsetTuning = 0;
+
+    printf("%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu,\n"
+           "%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n",
+           buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
+           buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16]);
+    printf("\n");
+#else
     uint8_t previousR, previousJ;
     uint8_t *inBuf;
     char *inPath, *outPath;
@@ -379,39 +392,22 @@ int main(int argc, char **argv) {
     previousR = buf[len-2];
 
     free(inBuf);
-#else
-    len = 16;
-    uint8_t buf[16] = {128,129,130,131,132,133,134,135,
-                       136,137,138,139,140,141,142,143};
-    isCheckADCMax = 0;
-    isRdc = 1;
-    isOffsetTuning = 1;
-
-    printf("%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu,\n"
-           "%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n",
-           buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
-           buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]);
-    printf("\n");
 #endif
+
     initializeEnv();
 
-    for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
-        samplePowSum += buf[i]*buf[i];
-    }
-    samplePowSum += samplePowSum / (LENGTH*len);
-
-    depth = convertTo16BitNx4Matrix(buf, len);
+    depth = processMatrix(buf, len, &buf16);
 
 #ifdef DEBUG
     for (i = 0; i < depth; ++i) {
-        union m256_16 temp = {.v = buf16x4[i]};
+        union m256_16 temp = {.v = buf16[i]};
         printf("(%hd + %hdI),\t(%hd + %hdI)\n",
                temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
     printf("\n");
 #endif
 
-    filterSimpleLowPass(depth);
+    filterSimpleBox(buf16, depth);
 
 #ifdef DEBUG
     for (i = 0; i < depth; i+=2) {
@@ -426,14 +422,18 @@ int main(int argc, char **argv) {
     printf("\n");
 #endif
 
-    free(buf16x4);
+    free(buf16);
 
     depth = demodulateFmData(depth, &result);
 
     free(lowPassed);
 
 #ifdef DEBUG
-    printf("%f, %f\n", result[0], result[1]);
+//    printf("%f, %f\n", result[0], result[1]);
+    for (i = 0; i < depth; ++i) {
+        printf("%f, ", result[i]);
+    }
+    printf("\n");
 #else
     file = fopen(outPath, "wb");
     fwrite(result, OUTPUT_ELEMENT_BYTES, depth, file);
