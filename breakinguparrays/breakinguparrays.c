@@ -20,7 +20,10 @@
 #include <math.h>
 #include <time.h>
 
-#define DEBUG
+//#define DEBUG
+#ifdef DEBUG
+#include <assert.h>
+#endif
 // sizeof(uint8_t)
 #define INPUT_ELEMENT_BYTES 1
 // sizeof(float)
@@ -216,15 +219,13 @@ static void rotateForNonOffsetTuning(__m256i *buf, const uint32_t len) {
     }
 }
 
-static int convertTo16Bit(const __m256i *buf, const uint32_t len, __m256i *buf16) {
+static void convertTo16Bit(const __m256i *buf, const uint32_t len, __m256i *buf16) {
 
     uint32_t i;
 
     for (i = 0; i < len; ++i) {
         buf16[i] = mm256Epi8convertEpi16(_mm256_sub_epi8(buf[i], Z));
     }
-
-    return i;
 }
 
 static void findMaxSample(const __m256i *buf8, const uint32_t len) {
@@ -273,14 +274,16 @@ static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8) {
         leftToProcess -= VECTOR_WIDTH;
     }
 
-    return j;
+    return j-1;
 }
 
 static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m256i **buf16) {
 
 
-    int i, depth;
-    uint32_t count = 1 << ((len >> LOG2_VECTOR_WIDTH) + ((len & 3) != 0 ? 1 : 0)); // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0)
+    uint32_t i, depth;
+    uint32_t count = (len & 3) != 0 // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0))
+            ? (len >> LOG2_VECTOR_WIDTH) + 1
+            : (len >> LOG2_VECTOR_WIDTH);
     __m256i *buf8 = calloc(count, sizeof(__m256i));
 
     *buf16 = calloc(count, sizeof(__m256i));
@@ -296,7 +299,7 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m256i **
         findMaxSample(buf8, depth);
     }
 
-    depth = convertTo16Bit(buf8, depth, *buf16);
+    convertTo16Bit(buf8, depth, *buf16);
 
     free(buf8);
 
