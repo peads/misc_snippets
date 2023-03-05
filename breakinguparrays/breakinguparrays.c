@@ -120,12 +120,14 @@ static uint8_t isRdc;
 static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 static uint32_t rdcBlockScalar = 9 + 1;
-//static uint32_t downsample;
-static __m256i *lowPassed;
+static uint32_t adcBlockScalar = 9 + 1;
 static __m256i dcAvgIq = {0,0,0,0};
 static __m256i rdcBlockVector;
 static __m256i rdcBlockRVector;
 static __m256i rdcBlockVect1;
+static __m256i adcBlockVector;
+static __m256i adcBlockRVector;
+static __m256i adcBlockVect1;
 
 static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
     return a > b ? a : b;
@@ -173,19 +175,16 @@ static struct rotationMatrix generateRotationMatrix(const float theta, const flo
     return result;
 }
 
-static uint32_t filterSimpleBox(__m256i *buf, uint32_t len, const uint32_t downsample) {
+static uint32_t downSample(__m256i *buf, uint32_t len, const uint32_t downsample) {
     int i,j;
-    __m256i *ptr = buf;
-
-    lowPassed = calloc(len, sizeof(__m256i));
 
     for (j = 0; j < downsample; ++j) {
         for (i = 0; i < len; ++i) {
-            lowPassed[i >> 1]
-                    = _mm256_add_epi16(ptr[i],
-                                       _mm256_shufflelo_epi16(ptr[i], _MM_SHUFFLE(1, 0, 3, 2)));
+            buf[i >> 1]
+                = _mm256_add_epi16(buf[i],
+                   _mm256_shufflelo_epi16(buf[i],
+                          _MM_SHUFFLE(1, 0, 3, 2)));
         }
-        ptr = lowPassed;
     }
 
     return len >> downsample;
@@ -193,18 +192,18 @@ static uint32_t filterSimpleBox(__m256i *buf, uint32_t len, const uint32_t downs
 
 static void filterRawDc(__m256i *buf, const uint32_t len) {
 
-    const __m256i oneOverLen = _mm256_set1_epi16(16384/len); // 1/(len/2) = 2/len
+    const __m256i oneOverHalfLen = _mm256_set1_epi16(16384 / len); // 1/(len/2) = 2/len
 
     __m256i sumIq = {0,0,0,0};
     __m256i avgIq;
-
     int i;
+
     for (i = 0; i < len; ++i) {
         sumIq = _mm256_add_epi16(sumIq, _mm256_add_epi16(buf[i],
          _mm256_shufflelo_epi16(buf[i], _MM_SHUFFLE(2, 3, 0, 1))));
     }
 
-    avgIq = _mm256_mulhrs_epi16(sumIq, oneOverLen);
+    avgIq = _mm256_mulhrs_epi16(sumIq, oneOverHalfLen);
     avgIq = _mm256_add_epi16(avgIq, _mm256_mullo_epi16(dcAvgIq, rdcBlockVector));
     avgIq = _mm256_mulhrs_epi16(avgIq, rdcBlockRVector);
     avgIq = _mm256_mullo_epi16(avgIq, rdcBlockVect1);
@@ -245,7 +244,7 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
     sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
 }
 
-static uint64_t demodulateFmData(const uint32_t len, float **result) {
+static uint64_t demodulateFmData(__m256i *buf, const uint32_t len, float **result) {
 
     uint64_t i;
 
@@ -254,8 +253,8 @@ static uint64_t demodulateFmData(const uint32_t len, float **result) {
     for (i = 0; i < len; i+=2) {
 
         (*result)[i >> 1] = argzB(_mm256_mullo_epi16(
-                lowPassed[i],                       NEGATE_B_IM),
-                lowPassed[i+1]);
+                                          buf[i], NEGATE_B_IM),
+                                  buf[i + 1]);
     }
 
     return i >> 1;
@@ -332,10 +331,15 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
 
 static void initializeEnv(void) {
 
-    const int16_t scalarP1 = rdcBlockScalar + 1;
+    const int16_t rdcScalarP1 = rdcBlockScalar + 1;
     rdcBlockVector = _mm256_set1_epi16(rdcBlockScalar);
-    rdcBlockVect1 = _mm256_set1_epi16(scalarP1);//(union m256_16){scalarP1, 0x1, scalarP1, 0x1}.v;
-    rdcBlockRVector = _mm256_set1_epi16(32768/scalarP1);//(union m256_16){32768/scalarP1, 0x1, 32768/scalarP1, 0x1}.v;
+    rdcBlockVect1 = _mm256_set1_epi16(rdcScalarP1);
+    rdcBlockRVector = _mm256_set1_epi16(32768 / rdcScalarP1);
+
+    const int16_t adcScalarP1 = adcBlockScalar + 1;
+    adcBlockVector = _mm256_set1_epi16(adcBlockScalar);
+    adcBlockVect1 = _mm256_set1_epi16(adcScalarP1);
+    adcBlockRVector = _mm256_set1_epi16(32768 / adcScalarP1);
 }
 
 int main(int argc, char **argv) {
@@ -344,7 +348,7 @@ int main(int argc, char **argv) {
     uint64_t depth;
     uint32_t len;
     float *result;
-    __m256i *buf16;
+    __m256i *lowPassed;
     uint32_t downsample;
 
 #ifdef DEBUG
@@ -402,7 +406,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    len = readFileData(inPath, &inBuf) + 2;
+    depth = len = readFileData(inPath, &inBuf) + 2;
     buf = calloc(len, INPUT_ELEMENT_BYTES);
 
     buf[0] = previousR;
@@ -416,7 +420,7 @@ int main(int argc, char **argv) {
 
     initializeEnv();
 
-    depth = processMatrix(buf, len, &buf16);
+    depth = processMatrix(buf, len, &lowPassed);
 
 #ifdef DEBUG
     for (i = 0; i < depth; ++i) {
@@ -427,7 +431,7 @@ int main(int argc, char **argv) {
     printf("\n");
 #endif
 
-    depth = filterSimpleBox(buf16, depth, downsample);
+    depth = downSample(lowPassed, depth, downsample);
 #ifdef DEBUG
     for (i = 0; i < depth; i+=2) {
         union m256_16 temp = {.v = lowPassed[i]};
@@ -441,11 +445,7 @@ int main(int argc, char **argv) {
     printf("\n");
 #endif
 
-    free(buf16);
-
-    /*depth = */demodulateFmData(depth, &result);
-
-    free(lowPassed);
+    /*depth = */demodulateFmData(lowPassed, depth, &result);
 
 #ifdef DEBUG
 //    printf("%f, %f\n", result[0], result[1]);
@@ -458,5 +458,6 @@ int main(int argc, char **argv) {
     fwrite(result, OUTPUT_ELEMENT_BYTES, depth, file);
     fclose(file);
 #endif
+    free(lowPassed);
     free(result);
 }
