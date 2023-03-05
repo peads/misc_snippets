@@ -79,7 +79,7 @@ __asm__(
     "vpermilps $0x1B, %xmm1, %xmm2\n\t"
     "vaddps %xmm2, %xmm1, %xmm1\n\t"        // ..., (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
     "vsqrtps %xmm1, %xmm1\n\t"              // ..., Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
-    "vdivps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/r , zr/r = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+    "vdivps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
 
     // push
     "sub $16, %rsp \n\t"
@@ -173,16 +173,22 @@ static struct rotationMatrix generateRotationMatrix(const float theta, const flo
     return result;
 }
 
-static void filterSimpleBox(const __m256i *buf, const uint32_t len) {
-    int i;
+static uint32_t filterSimpleBox(__m256i *buf, uint32_t len, const uint32_t downsample) {
+    int i,j;
+    __m256i *ptr = buf;
 
     lowPassed = calloc(len, sizeof(__m256i));
 
-    for (i = 0; i < len; ++i) {
-        lowPassed[i]
-            = _mm256_add_epi16(buf[i],
-               _mm256_shufflelo_epi16(buf[i], _MM_SHUFFLE(1, 0, 3, 2)));
+    for (j = 0; j < downsample; ++j) {
+        for (i = 0; i < len; ++i) {
+            lowPassed[i >> 1]
+                    = _mm256_add_epi16(ptr[i],
+                                       _mm256_shufflelo_epi16(ptr[i], _MM_SHUFFLE(1, 0, 3, 2)));
+        }
+        ptr = lowPassed;
     }
+
+    return len >> downsample;
 }
 
 static void filterRawDc(__m256i *buf, const uint32_t len) {
@@ -296,7 +302,7 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m256i **
         }
         samplePowSum += samplePowSum / len;
 
-        findMaxSample(buf8, depth);
+        findMaxSample(buf8, depth); // TODO fix this for nx4 matrix
     }
 
     convertTo16Bit(buf8, depth, *buf16);
@@ -339,6 +345,7 @@ int main(int argc, char **argv) {
     uint32_t len;
     float *result;
     __m256i *buf16;
+    uint32_t downsample;
 
 #ifdef DEBUG
     uint8_t buf[18] = {128,129,130,131,132,133,134,135,
@@ -366,7 +373,8 @@ int main(int argc, char **argv) {
         isCheckADCMax = 0;
         isRdc = 0;
         isOffsetTuning = 0;
-//        downsample = 2;
+        int argsCount = 3;
+        downsample = 1;
         inPath = argv[1];
         outPath = argv[2];
 
@@ -374,19 +382,27 @@ int main(int argc, char **argv) {
             switch (argv[i][0]){
                 case 'r':
                     isRdc = 1;
+                    argsCount++;
                     break;
                 case 'a':
                     isCheckADCMax = 1;
+                    argsCount++;
                     break;
                 case 'o':
                     isOffsetTuning = 1;
+                    argsCount++;
                 default:
+                    argsCount--;
                     break;
             }
         }
+
+        if (argsCount != argc) {
+            downsample = atoi(argv[argc - 1]);
+        }
     }
 
-    len = readFileData(inPath, &inBuf) + 2; //((1 << 6) + 27 + 2)
+    len = readFileData(inPath, &inBuf) + 2;
     buf = calloc(len, INPUT_ELEMENT_BYTES);
 
     buf[0] = previousR;
@@ -411,8 +427,7 @@ int main(int argc, char **argv) {
     printf("\n");
 #endif
 
-    filterSimpleBox(buf16, depth);
-
+    depth = filterSimpleBox(buf16, depth, downsample);
 #ifdef DEBUG
     for (i = 0; i < depth; i+=2) {
         union m256_16 temp = {.v = lowPassed[i]};
@@ -428,7 +443,7 @@ int main(int argc, char **argv) {
 
     free(buf16);
 
-    depth = demodulateFmData(depth, &result);
+    /*depth = */demodulateFmData(depth, &result);
 
     free(lowPassed);
 
