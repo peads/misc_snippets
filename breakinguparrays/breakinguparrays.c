@@ -20,37 +20,37 @@
 #include <math.h>
 #include <time.h>
 
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
 #include <assert.h>
 #endif
 // sizeof(uint8_t)
 #define INPUT_ELEMENT_BYTES 1
 // sizeof(float)
-#define OUTPUT_ELEMENT_BYTES 4
+#define OUTPUT_ELEMENT_BYTES 5
 #define VECTOR_WIDTH 4
 #define LOG2_VECTOR_WIDTH 2
 #define MAXIMUM_BUF_SIZE 1L << 33
 
-union m256_16 {
-    int16_t buf[4];
-    __m256i v;
+union m256_f {
+    float buf[4];
+    __m128 v;
 };
 
 struct rotationMatrix {
-    const union m256_16 a1;
-    const union m256_16 a2;
+    const union m256_f a1;
+    const union m256_f a2;
 };
 
 //#ifndef DEBUG
-static const __m256i NEGATE_B_IM = {281479271809023, 0, 0, 0};
+static const __m128 NEGATE_B_IM = {1.f,1.f,-1.f,1.f};
 //static const __m256i NEGATE_B_IM = {281483566579713, 0, 0, 0};
 //#else
 //static const __m256i NEGATE_B_IM = {281479271743489, 0, 0, 0};
 //#endif
-static const __m256i Z // all 127s
+static const __m256i Z 
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
-//static const __m256 FIXED_PT_SCALE
+//static const __m128 FIXED_PT_SCALE
 //    = {5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896};
 
 /**
@@ -58,19 +58,19 @@ static const __m256i Z // all 127s
  * (ar + iaj), (br + ibj), s.t. z = {ar, br, aj, bj}
  * and returns their argument as a float
  **/
-extern float argzB(__m256i a, __m256i b);
+extern float argzB(__m128 a);
 __asm__(
 #ifdef __clang__
 "_argzB: "
 #else
 "argzB: "
 #endif
-    "vpshuflw $0x05, %xmm0, %xmm0\n\t" // ar, br, aj, bj => (aj, aj, ar, ar)
-    "vpshuflw $0xEB, %xmm1, %xmm1\n\t" // and               (bj, br, br, bj)
-    "vpmovsxwd %xmm0, %xmm0\n\t"
-    "vpmovsxwd %xmm1, %xmm1\n\t"
-    "vcvtdq2ps %xmm0, %xmm0\n\t"
-    "vcvtdq2ps %xmm1, %xmm1\n\t"
+    "vpermilps $0xEB, %xmm0, %xmm1\n\t" // ar, aj, br, bj => (aj, aj, ar, ar)
+    "vpermilps $0x5, %xmm0, %xmm0\n\t" // and               (bj, br, br, bj)
+//    "vpmovsxwd %xmm0, %xmm0\n\t"
+//    "vpmovsxwd %xmm1, %xmm1\n\t"
+//    "vcvtdq2ps %xmm0, %xmm0\n\t"
+//    "vcvtdq2ps %xmm1, %xmm1\n\t"
 
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
     "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br
@@ -109,8 +109,8 @@ static const struct rotationMatrix THREE_PI_OVER_TWO_ROTATION = {
 };
 
 static const struct rotationMatrix CONJ_TRANSFORM = {
-        {1, 0,1, 0},
-        {0, -1,0, -1}
+        {1, 0},
+        {0, -1}
 };
 
 
@@ -121,20 +121,20 @@ static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 static uint32_t rdcBlockScalar = 9 + 1;
 static uint32_t adcBlockScalar = 9 + 1;
-static __m256i rdcBlockVector;
-static __m256i rdcBlockRVector;
-static __m256i rdcBlockVect1;
-static __m256i adcBlockVector;
-static __m256i adcBlockRVector;
-static __m256i adcBlockVect1;
+static __m128 rdcBlockVector;
+static __m128 rdcBlockRVector;
+static __m128 rdcBlockVect1;
+static __m128 adcBlockVector;
+static __m128 adcBlockRVector;
+static __m128 adcBlockVect1;
 
 static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
     return a > b ? a : b;
 }
 
-static inline __m256i mm256Epi8convertEpi16(__m256i data) {
+static inline __m128 mm256Epi8convertPs(__m256i data) {
     __m128i lo_lane = _mm256_castsi256_si128(data);
-    return _mm256_cvtepi8_epi16(lo_lane);
+    return _mm_cvtepi32_ps(_mm_cvtepi16_epi32(_mm_cvtepi8_epi16(lo_lane)));
 }
 
 /**
@@ -145,27 +145,27 @@ static inline __m256i mm256Epi8convertEpi16(__m256i data) {
  * concatenated, s.t. u = {u1,u2,v1,v2}
  *  -> {a*u1 + c*u1, b*u2 + d*u2, ... , b*v2 + d*v2}
  */
-static __m256i apply4x4_4x1Transform(const struct rotationMatrix T, const __m256i u) {
-    // TODO integrate abliity to use fixed point encoded values from the
-    // generate function (scaling factor: 2^13)
-    __m256i temp, temp1;
+static __m128 apply4x4_4x1Transform(const struct rotationMatrix T, const __m128 u) {
 
-    temp = _mm256_mullo_epi16(T.a1.v, u);   // u1*a11, u2*a12, u3*a13, ...
-    temp1 = _mm256_mullo_epi16(T.a2.v, u);  // u1*a21, u2*a22, ...
-    return _mm256_blend_epi16(
-            _mm256_add_epi16(temp,             // u1*a11 + u2*a12, ... , u3*a13 + u4*a14
-                _mm256_shufflelo_epi16(temp, _MM_SHUFFLE(2,3,0,1))),
-            _mm256_add_epi16(temp1,            // u1*a21 + u2*a22, ... , u3*a23 + u4*a24
-                _mm256_shufflelo_epi16(temp1, _MM_SHUFFLE(2,3,0,1))),
-            0xA);                                 // u1*a11 + u2*a12, u1*a21 + u2*a22,
+    __m128 temp, temp1;
+
+    temp = _mm_mul_ps(T.a1.v, u);   // u1*a11, u2*a12, u3*a13, ...
+//    temp1 = _mm_mul_ps(T.a2.v, u);  // u1*a21, u2*a22, ...
+//    return _mm_blend_ps(
+            return _mm_add_ps(temp,             // u1*a11 + u2*a12, ... , u3*a13 + u4*a14
+            _mm_permute_ps(temp, _MM_SHUFFLE(2,3,0,1)));//,
+//            _mm_add_ps(temp1,            // u1*a21 + u2*a22, ... , u3*a23 + u4*a24
+//            _mm_permute_ps(temp1, _MM_SHUFFLE(2,3,0,1))),
+//            0xA);                                 // u1*a11 + u2*a12, u1*a21 + u2*a22,
                                                   // u3*a13 + u4*a14, u3*a23 + u4*a24
     // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
 }
 
 static struct rotationMatrix generateRotationMatrix(const float theta, const float phi) {
 
-    int16_t cosT = cos(theta) * (1 << 13);
-    int16_t sinT = sin(phi) * (1 << 13);
+    const int16_t cosT = cos(theta) * (1 << 13);
+    const int16_t sinT = sin(phi) * (1 << 13);
+
     struct rotationMatrix result = {
             .a1 = {cosT, -sinT, cosT, -sinT},
             .a2 = {sinT, cosT, sinT, cosT}
@@ -174,14 +174,15 @@ static struct rotationMatrix generateRotationMatrix(const float theta, const flo
     return result;
 }
 
-static uint32_t downSample(__m256i *buf, uint32_t len, const uint32_t downsample) {
+static uint32_t downSample(__m128 *buf, uint32_t len, const uint32_t downsample) {
+
     int i,j;
 
     for (j = 0; j < downsample; ++j) {
         for (i = 0; i < len; ++i) {
             buf[i >> 1]
-                = _mm256_add_epi16(buf[i],
-                   _mm256_shufflelo_epi16(buf[i],
+                = _mm_add_ps(buf[i],
+                   _mm_permute_ps(buf[i],
                           _MM_SHUFFLE(1, 0, 3, 2)));
         }
     }
@@ -189,54 +190,54 @@ static uint32_t downSample(__m256i *buf, uint32_t len, const uint32_t downsample
     return len >> downsample;
 }
 
-static void filterRawDc(__m256i *buf, const uint32_t len) {
+static void filterRawDc(__m128 *buf, const uint32_t len) {
 
-    static __m256i dcAvgIq = {0,0,0,0};
+    static __m128 dcAvgIq = {0,0,0,0};
 
-    const __m256i oneOverHalfLen = _mm256_set1_epi16(16384 / len); // 1/(len/2) = 2/len
+    const __m128 oneOverHalfLen = _mm_set1_ps(2.f / len); // 1/(len/2) = 2/len
 
-    __m256i sumIq = {0,0,0,0};
-    __m256i avgIq;
+    __m128 sumIq = {0,0,0,0};
+    __m128 avgIq;
     int i;
 
     for (i = 0; i < len; ++i) {
-        sumIq = _mm256_add_epi16(sumIq, _mm256_add_epi16(buf[i],
-         _mm256_shufflelo_epi16(buf[i], _MM_SHUFFLE(2, 3, 0, 1))));
+        sumIq = _mm_add_ps(sumIq, _mm_add_ps(buf[i],
+         _mm_permute_ps(buf[i], _MM_SHUFFLE(2, 3, 0, 1))));
     }
 
-    avgIq = _mm256_mulhrs_epi16(sumIq, oneOverHalfLen);
-    avgIq = _mm256_add_epi16(avgIq, _mm256_mullo_epi16(dcAvgIq, rdcBlockVector));
-    avgIq = _mm256_mulhrs_epi16(avgIq, rdcBlockRVector);
-    avgIq = _mm256_mullo_epi16(avgIq, rdcBlockVect1);
+    avgIq = _mm_mul_ps(sumIq, oneOverHalfLen);
+    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rdcBlockVector));
+    avgIq = _mm_mul_ps(avgIq, rdcBlockRVector);
+    avgIq = _mm_mul_ps(avgIq, rdcBlockVect1);
 
     for (i = 0; i < len; ++i) {
-        buf[i] = _mm256_sub_epi16(buf[i], avgIq);
+        buf[i] = _mm_sub_ps(buf[i], avgIq);
     }
 
     dcAvgIq = avgIq;
 }
 
-static void rotateForNonOffsetTuning(__m256i *buf, const uint32_t len) {
+static void rotateForNonOffsetTuning(__m128 *buf, const uint32_t len) {
 
-    int i, j;
+    int i;
 
-    for(i = 0, j = 0; i < len; ++i, j+=4) {
+    for(i = 0; i < len; ++i) {
         buf[i] = apply4x4_4x1Transform(CONJ_TRANSFORM, buf[i]);
     }
 }
 
-static void convertTo16Bit(const __m256i *buf, const uint32_t len, __m256i *buf16) {
+static void convertTo16Bit(const __m256i *buf, const uint32_t len, __m128 *buff) {
 
     uint32_t i;
 
     for (i = 0; i < len; ++i) {
-        buf16[i] = mm256Epi8convertEpi16(_mm256_sub_epi8(buf[i], Z));
+        buff[i] = mm256Epi8convertPs(_mm256_sub_epi8(buf[i], Z));
     }
 }
 
 static void findMaxSample(const __m256i *buf8, const uint32_t len) {
 
-    int i;
+    uint32_t i;
     __m256i sm;
 
     for (i = 0; i < len; ++i) {
@@ -245,17 +246,14 @@ static void findMaxSample(const __m256i *buf8, const uint32_t len) {
     sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
 }
 
-static uint64_t demodulateFmData(__m256i *buf, const uint32_t len, float **result) {
+static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result) {
 
     uint64_t i;
 
-    *result = calloc(len >> 1, OUTPUT_ELEMENT_BYTES);
+    *result = calloc(len, OUTPUT_ELEMENT_BYTES);
+    for (i = 0; i < len; ++i) {
 
-    for (i = 0; i < len-1; i+=2) {
-
-        (*result)[i >> 1] = argzB(_mm256_mullo_epi16(
-                                          buf[i], NEGATE_B_IM),
-                                  buf[i + 1]);
+        (*result)[i] = argzB(_mm_mul_ps(buf[i], NEGATE_B_IM));
     }
 
     return i >> 1;
@@ -283,7 +281,7 @@ static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8) {
     return j;
 }
 
-static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m256i **buf16) {
+static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **buff) {
 
 
     uint32_t i, depth;
@@ -292,7 +290,7 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m256i **
             : (len >> LOG2_VECTOR_WIDTH);
     __m256i *buf8 = calloc(count, sizeof(__m256i));
 
-    *buf16 = calloc(count, sizeof(__m256i));
+    *buff = calloc(count, sizeof(__m256));
 
     depth = breakit(buf, len, buf8);
 
@@ -305,16 +303,16 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m256i **
         findMaxSample(buf8, depth); // TODO fix this for nx4 matrix
     }
 
-    convertTo16Bit(buf8, depth, *buf16);
+    convertTo16Bit(buf8, depth, *buff);
 
     free(buf8);
 
     if (isRdc) {
-        filterRawDc(*buf16, depth);
+        filterRawDc(*buff, depth);
     }
 
     if (!isOffsetTuning) {
-        rotateForNonOffsetTuning(*buf16, depth);
+        rotateForNonOffsetTuning(*buff, depth);
     }
 
     return depth;
@@ -333,23 +331,24 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
 static void initializeEnv(void) {
 
     const int16_t rdcScalarP1 = rdcBlockScalar + 1;
-    rdcBlockVector = _mm256_set1_epi16(rdcBlockScalar);
-    rdcBlockVect1 = _mm256_set1_epi16(rdcScalarP1);
-    rdcBlockRVector = _mm256_set1_epi16(32768 / rdcScalarP1);
+    rdcBlockVector = _mm_set1_ps(rdcBlockScalar);
+    rdcBlockVect1 = _mm_set1_ps(rdcScalarP1);
+    rdcBlockRVector = _mm_set1_ps(32768 / rdcScalarP1);
 
     const int16_t adcScalarP1 = adcBlockScalar + 1;
-    adcBlockVector = _mm256_set1_epi16(adcBlockScalar);
-    adcBlockVect1 = _mm256_set1_epi16(adcScalarP1);
-    adcBlockRVector = _mm256_set1_epi16(32768 / adcScalarP1);
+    adcBlockVector = _mm_set1_ps(adcBlockScalar);
+    adcBlockVect1 = _mm_set1_ps(adcScalarP1);
+    adcBlockRVector = _mm_set1_ps(32768 / adcScalarP1);
 }
 
 int main(int argc, char **argv) {
 
-    int i;
+    int i = 1;
     uint64_t depth;
     uint32_t len;
     float *result;
-    __m256i *lowPassed;
+    __m128 *lowPassed;
+    __m128 *permuted;
     uint32_t downsample;
     int argsCount;
 #ifndef DEBUG
@@ -366,7 +365,6 @@ int main(int argc, char **argv) {
         isRdc = 0;
         isOffsetTuning = 0;
         downsample = 1;
-        i = 1;
 #ifndef DEBUG
         inPath = argv[1];
         outPath = argv[2];
@@ -430,8 +428,8 @@ int main(int argc, char **argv) {
 
 #ifdef DEBUG
     for (i = 0; i < depth; ++i) {
-        union m256_16 temp = {.v = lowPassed[i]};
-        printf("(%hd + %hdI),\t(%hd + %hdI)\n",
+        union m256_f temp = {.v = lowPassed[i]};
+        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
                temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
     printf("\n");
@@ -439,22 +437,23 @@ int main(int argc, char **argv) {
 
     depth = downSample(lowPassed, depth, downsample);
 #ifdef DEBUG
-    for (i = 0; i < depth; i+=2) {
-        union m256_16 temp = {.v = lowPassed[i]};
-        printf("(%hd + %hdI),\t",
-               temp.buf[0], temp.buf[1]);
-
-        temp.v = lowPassed[i+1];
-        printf("(%hd + %hdI)\n",
-            temp.buf[0], temp.buf[1]);
+    for (i = 0; i < depth; ++i) {
+        union m256_f temp = {.v = lowPassed[i]};
+        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
+            temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
     printf("\n");
 #endif
-
-    depth = demodulateFmData(lowPassed, depth, &result);
+    depth <<= 1;
+    permuted = calloc(depth, sizeof(__m128));
+    for (i = 0; i < depth; i+=2) {
+        permuted[i] = lowPassed[i];
+        permuted[i+1] = _mm_blend_ps(lowPassed[i],lowPassed[i+1], 0b0011);
+    }
+    depth = demodulateFmData(permuted, depth, &result);
 
 #ifdef DEBUG
-//    printf("%f, %f\n", result[0], result[1]);
+//    printf("%.01f, %.01f\n", result[0], result[1]);
     for (i = 0; i < depth; ++i) {
         printf("%f, ", result[i]);
     }
@@ -464,6 +463,7 @@ int main(int argc, char **argv) {
     fwrite(result, OUTPUT_ELEMENT_BYTES, depth, file);
     fclose(file);
 #endif
+    free(permuted);
     free(lowPassed);
     free(result);
 }
