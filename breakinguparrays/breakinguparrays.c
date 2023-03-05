@@ -20,7 +20,7 @@
 #include <math.h>
 #include <time.h>
 
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
 #include <assert.h>
 #endif
@@ -43,7 +43,7 @@ struct rotationMatrix {
 };
 
 static const __m128 NEGATE_B_IM = {1.f,1.f,1.f,-1.f};
-static const __m256i Z 
+static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 
 /**
@@ -52,14 +52,15 @@ static const __m256i Z
  * and returns their argument as a float
  **/
 extern float argzB(__m128 a);
+uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result);
 __asm__(
 #ifdef __clang__
 "_argzB: "
 #else
 "argzB: "
 #endif
-    "vpermilps $0xEB, %xmm0, %xmm1\n\t" // ar, aj, br, bj => (aj, aj, ar, ar)
-    "vpermilps $0x5, %xmm0, %xmm0\n\t" // and               (bj, br, br, bj)
+    "vpermilps $0xEB, %xmm0, %xmm1\n\t"     // (ar, aj, br, bj) => (aj, aj, ar, ar)
+    "vpermilps $0x5, %xmm0, %xmm0\n\t"      // and                 (bj, br, br, bj)
 
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
     "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br
@@ -131,8 +132,8 @@ static inline __m128 mm256Epi8convertPs(__m256i data) {
  * Here, it is used to apply the same rotation matrix to
  * two complex numbers. i.e., for the the matrix
  * T = {{a,b}, {c,d}} and two vectors {u1,u2} and {v1,v2}
- * concatenated, s.t. u = {u1,u2,v1,v2}
- *  -> {a*u1 + c*u1, b*u2 + d*u2, ... , b*v2 + d*v2}
+ * concatenated, s.t. u = {u1,u2,v1,v2}, Tu =
+ * {a*u1 + c*u1, b*u2 + d*u2, ... , b*v2 + d*v2}
  */
 static __m128 apply4x4_4x1Transform(const struct rotationMatrix T, const __m128 u) {
 
@@ -168,10 +169,8 @@ static uint32_t downSample(__m128 *buf, uint32_t len, const uint32_t downsample)
 
     for (j = 0; j < downsample; ++j) {
         for (i = 0; i < len; ++i) {
-            buf[i >> 1]
-                = _mm_add_ps(buf[i],
-                   _mm_permute_ps(buf[i],
-                          _MM_SHUFFLE(1, 0, 3, 2)));
+            buf[i >> 1] = _mm_add_ps(buf[i],_mm_permute_ps(buf[i],
+                _MM_SHUFFLE(1, 0, 3, 2)));
         }
     }
 
@@ -214,7 +213,7 @@ static void rotateForNonOffsetTuning(__m128 *buf, const uint32_t len) {
     }
 }
 
-static void convertTo16Bit(const __m256i *buf, const uint32_t len, __m128 *buff) {
+static void convertToFloat(const __m256i *buf, const uint32_t len, __m128 *buff) {
 
     uint32_t i;
 
@@ -240,12 +239,6 @@ static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result
 
     *result = calloc(len, OUTPUT_ELEMENT_BYTES);
     for (i = 0; i < len; ++i) {
-#ifdef DEBUG
-        union m256_f temp = {.v = _mm_mul_ps(buf[i], NEGATE_B_IM)};
-        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
-               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
-#endif
-
         (*result)[i] = argzB(_mm_mul_ps(buf[i], NEGATE_B_IM));
     }
 
@@ -296,7 +289,7 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **b
         findMaxSample(buf8, depth); // TODO fix this for nx4 matrix
     }
 
-    convertTo16Bit(buf8, depth, *buff);
+    convertToFloat(buf8, depth, *buff);
 
     free(buf8);
 
@@ -337,6 +330,7 @@ static void initializeEnv(void) {
 int main(int argc, char **argv) {
 
     int i = 1;
+    int j;
     uint64_t depth;
     uint32_t len;
     float *result;
@@ -344,6 +338,7 @@ int main(int argc, char **argv) {
     __m128 *permuted;
     uint32_t downsample;
     int argsCount;
+
 #ifndef DEBUG
     char *inPath, *outPath;
     argsCount = 3;
@@ -358,12 +353,12 @@ int main(int argc, char **argv) {
         isRdc = 0;
         isOffsetTuning = 0;
         downsample = 1;
+
 #ifndef DEBUG
         inPath = argv[1];
         outPath = argv[2];
         i = 3;
 #endif
-
         for (; i < argc; ++i) {
             switch (argv[i][0]){
                 case 'r':
@@ -387,6 +382,7 @@ int main(int argc, char **argv) {
             downsample = atoi(argv[argc - 1]);
         }
     }
+
 #ifdef DEBUG
     uint8_t buf[18] = {128,129,130,131,132,133,134,135,
                        136,137,138,139,140,141,142,143, 0,0};
@@ -420,6 +416,7 @@ int main(int argc, char **argv) {
     depth = processMatrix(buf, len, &lowPassed);
 
 #ifdef DEBUG
+    printf("Processed matrix:\n");
     for (i = 0; i < depth; ++i) {
         union m256_f temp = {.v = lowPassed[i]};
         printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
@@ -429,23 +426,23 @@ int main(int argc, char **argv) {
 #endif
 
     depth = downSample(lowPassed, depth, downsample);
+
 #ifdef DEBUG
+    printf("Downsampled and windowed:\n");
     for (i = 0; i < depth; ++i) {
         union m256_f temp = {.v = lowPassed[i]};
         printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
             temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
-    printf("\n");
+    printf("\nPermuted pairs:\n");
 #endif
-    depth++;
-    permuted = calloc(depth, sizeof(__m128));
-    for (i = 0; i < depth; i+=2) {
-        permuted[i] = lowPassed[i];
-        permuted[i+1] = _mm_blend_ps(lowPassed[i],lowPassed[i+1], 0b0011);
-    }
+
+    depth = permutePairsForDemod(lowPassed, depth, &permuted);
+
     depth = demodulateFmData(permuted, depth, &result);
 
 #ifdef DEBUG
+    printf("\nPhase angles:\n");
     for (i = 0; i < depth; ++i) {
         printf("%f, ", result[i]);
     }
@@ -455,7 +452,30 @@ int main(int argc, char **argv) {
     fwrite(result, OUTPUT_ELEMENT_BYTES, depth, file);
     fclose(file);
 #endif
+
     free(permuted);
     free(lowPassed);
     free(result);
+}
+
+uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
+
+    int i,j;
+
+    *result = calloc(len << 1, sizeof(__m128));
+
+    for (i = 0, j = 0; i < len; ++i, j+=2) {
+        (*result)[j] = buf[i];
+        (*result)[j + 1] = _mm_blend_ps(buf[i], buf[i + 1], 0b0011);
+#ifdef DEBUG
+        union m256_f temp = {.v = (*result)[j]};
+        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
+               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
+
+        temp.v = (*result)[j + 1];
+        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
+               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
+#endif
+    }
+    return len << 1;
 }
