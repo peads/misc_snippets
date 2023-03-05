@@ -109,8 +109,8 @@ static const struct rotationMatrix THREE_PI_OVER_TWO_ROTATION = {
 };
 
 static const struct rotationMatrix CONJ_TRANSFORM = {
-        {1, 0},
-        {0, -1}
+        {1, 0, 1, 0},
+        {0, -1, 0, -1}
 };
 
 
@@ -149,14 +149,13 @@ static __m128 apply4x4_4x1Transform(const struct rotationMatrix T, const __m128 
 
     __m128 temp, temp1;
 
-    temp = _mm_mul_ps(T.a1.v, u);   // u1*a11, u2*a12, u3*a13, ...
-//    temp1 = _mm_mul_ps(T.a2.v, u);  // u1*a21, u2*a22, ...
-//    return _mm_blend_ps(
-            return _mm_add_ps(temp,             // u1*a11 + u2*a12, ... , u3*a13 + u4*a14
-            _mm_permute_ps(temp, _MM_SHUFFLE(2,3,0,1)));//,
-//            _mm_add_ps(temp1,            // u1*a21 + u2*a22, ... , u3*a23 + u4*a24
-//            _mm_permute_ps(temp1, _MM_SHUFFLE(2,3,0,1))),
-//            0xA);                                 // u1*a11 + u2*a12, u1*a21 + u2*a22,
+    temp = _mm_mul_ps(T.a1.v, u);           // u1*a11, u2*a12, u3*a13, ...
+    temp1 = _mm_mul_ps(T.a2.v, u);          // u1*a21, u2*a22, ...
+    return _mm_blend_ps(_mm_add_ps(temp,       // u1*a11 + u2*a12, ... , u3*a13 + u4*a14
+            _mm_permute_ps(temp, _MM_SHUFFLE(2,3,0,1))),
+            _mm_add_ps(temp1,                  // u1*a21 + u2*a22, ... , u3*a23 + u4*a24
+            _mm_permute_ps(temp1, _MM_SHUFFLE(2,3,0,1))),
+            0xA);                                 // u1*a11 + u2*a12, u1*a21 + u2*a22,
                                                   // u3*a13 + u4*a14, u3*a23 + u4*a24
     // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
 }
