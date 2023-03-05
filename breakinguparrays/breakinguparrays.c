@@ -20,7 +20,7 @@
 #include <math.h>
 #include <time.h>
 
-#define DEBUG
+//#define DEBUG
 #ifdef DEBUG
 #include <assert.h>
 #endif
@@ -42,16 +42,9 @@ struct rotationMatrix {
     const union m256_f a2;
 };
 
-//#ifndef DEBUG
-static const __m128 NEGATE_B_IM = {1.f,1.f,-1.f,1.f};
-//static const __m256i NEGATE_B_IM = {281483566579713, 0, 0, 0};
-//#else
-//static const __m256i NEGATE_B_IM = {281479271743489, 0, 0, 0};
-//#endif
+static const __m128 NEGATE_B_IM = {1.f,1.f,1.f,-1.f};
 static const __m256i Z 
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
-//static const __m128 FIXED_PT_SCALE
-//    = {5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896, 5215.18896};
 
 /**
  * Takes two packed int16_ts representing the complex numbers
@@ -67,10 +60,6 @@ __asm__(
 #endif
     "vpermilps $0xEB, %xmm0, %xmm1\n\t" // ar, aj, br, bj => (aj, aj, ar, ar)
     "vpermilps $0x5, %xmm0, %xmm0\n\t" // and               (bj, br, br, bj)
-//    "vpmovsxwd %xmm0, %xmm0\n\t"
-//    "vpmovsxwd %xmm1, %xmm1\n\t"
-//    "vcvtdq2ps %xmm0, %xmm0\n\t"
-//    "vcvtdq2ps %xmm1, %xmm1\n\t"
 
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
     "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br
@@ -153,9 +142,9 @@ static __m128 apply4x4_4x1Transform(const struct rotationMatrix T, const __m128 
     temp1 = _mm_mul_ps(T.a2.v, u);          // u1*a21, u2*a22, ...
     return _mm_blend_ps(_mm_add_ps(temp,       // u1*a11 + u2*a12, ... , u3*a13 + u4*a14
             _mm_permute_ps(temp, _MM_SHUFFLE(2,3,0,1))),
-            _mm_add_ps(temp1,                  // u1*a21 + u2*a22, ... , u3*a23 + u4*a24
+                _mm_add_ps(temp1,              // u1*a21 + u2*a22, ... , u3*a23 + u4*a24
             _mm_permute_ps(temp1, _MM_SHUFFLE(2,3,0,1))),
-            0xA);                                 // u1*a11 + u2*a12, u1*a21 + u2*a22,
+        0xA);                                     // u1*a11 + u2*a12, u1*a21 + u2*a22,
                                                   // u3*a13 + u4*a14, u3*a23 + u4*a24
     // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
 }
@@ -251,6 +240,11 @@ static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result
 
     *result = calloc(len, OUTPUT_ELEMENT_BYTES);
     for (i = 0; i < len; ++i) {
+#ifdef DEBUG
+        union m256_f temp = {.v = _mm_mul_ps(buf[i], NEGATE_B_IM)};
+        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
+               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
+#endif
 
         (*result)[i] = argzB(_mm_mul_ps(buf[i], NEGATE_B_IM));
     }
@@ -443,7 +437,7 @@ int main(int argc, char **argv) {
     }
     printf("\n");
 #endif
-    depth <<= 1;
+    depth++;
     permuted = calloc(depth, sizeof(__m128));
     for (i = 0; i < depth; i+=2) {
         permuted[i] = lowPassed[i];
@@ -452,7 +446,6 @@ int main(int argc, char **argv) {
     depth = demodulateFmData(permuted, depth, &result);
 
 #ifdef DEBUG
-//    printf("%.01f, %.01f\n", result[0], result[1]);
     for (i = 0; i < depth; ++i) {
         printf("%f, ", result[i]);
     }
