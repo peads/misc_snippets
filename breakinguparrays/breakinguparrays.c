@@ -42,12 +42,12 @@ struct rotationMatrix {
     const union m256_16 a2;
 };
 
-#ifndef DEBUG
+//#ifndef DEBUG
 static const __m256i NEGATE_B_IM = {281479271809023, 0, 0, 0};
 //static const __m256i NEGATE_B_IM = {281483566579713, 0, 0, 0};
-#else
-static const __m256i NEGATE_B_IM = {281479271743489, 0, 0, 0};
-#endif
+//#else
+//static const __m256i NEGATE_B_IM = {281479271743489, 0, 0, 0};
+//#endif
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 //static const __m256 FIXED_PT_SCALE
@@ -121,7 +121,6 @@ static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 static uint32_t rdcBlockScalar = 9 + 1;
 static uint32_t adcBlockScalar = 9 + 1;
-static __m256i dcAvgIq = {0,0,0,0};
 static __m256i rdcBlockVector;
 static __m256i rdcBlockRVector;
 static __m256i rdcBlockVect1;
@@ -192,6 +191,8 @@ static uint32_t downSample(__m256i *buf, uint32_t len, const uint32_t downsample
 
 static void filterRawDc(__m256i *buf, const uint32_t len) {
 
+    static __m256i dcAvgIq = {0,0,0,0};
+
     const __m256i oneOverHalfLen = _mm256_set1_epi16(16384 / len); // 1/(len/2) = 2/len
 
     __m256i sumIq = {0,0,0,0};
@@ -250,7 +251,7 @@ static uint64_t demodulateFmData(__m256i *buf, const uint32_t len, float **resul
 
     *result = calloc(len >> 1, OUTPUT_ELEMENT_BYTES);
 
-    for (i = 0; i < len; i+=2) {
+    for (i = 0; i < len-1; i+=2) {
 
         (*result)[i >> 1] = argzB(_mm256_mullo_epi16(
                                           buf[i], NEGATE_B_IM),
@@ -272,14 +273,14 @@ static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8) {
         __m256i v;
     } z;
 
-    for (i = 0; leftToProcess > 0; i += VECTOR_WIDTH, ++j) {
+    for (i = 0; leftToProcess > 0; i += VECTOR_WIDTH) {
 
         memcpy(z.buf, buf + i, VECTOR_WIDTH);
-        buf8[j] = z.v;
+        buf8[j++] = z.v;
         leftToProcess -= VECTOR_WIDTH;
     }
 
-    return j-1;
+    return j;
 }
 
 static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m256i **buf16) {
@@ -350,39 +351,29 @@ int main(int argc, char **argv) {
     float *result;
     __m256i *lowPassed;
     uint32_t downsample;
-
-#ifdef DEBUG
-    uint8_t buf[18] = {128,129,130,131,132,133,134,135,
-                       136,137,138,139,140,141,142,143, 0,0};
-    len = sizeof(buf)/sizeof(*buf);
-    isCheckADCMax = 0;
-    isRdc = 1;
-    isOffsetTuning = 0;
-
-    printf("%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n"
-           "%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n",
-           buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
-           buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17]);
-    printf("\n");
-#else
-    uint8_t previousR, previousJ;
-    uint8_t *inBuf;
+    int argsCount;
+#ifndef DEBUG
     char *inPath, *outPath;
-    uint8_t *buf;
-    FILE *file;
+    argsCount = 3;
+#else
+    argsCount = 1;
+#endif
 
-    if (argc <= 2) {
+    if (argc < argsCount) {
         return -1;
     } else {
         isCheckADCMax = 0;
         isRdc = 0;
         isOffsetTuning = 0;
-        int argsCount = 3;
         downsample = 1;
+        i = 1;
+#ifndef DEBUG
         inPath = argv[1];
         outPath = argv[2];
+        i = 3;
+#endif
 
-        for (i = 3; i < argc; ++i) {
+        for (; i < argc; ++i) {
             switch (argv[i][0]){
                 case 'r':
                     isRdc = 1;
@@ -405,6 +396,21 @@ int main(int argc, char **argv) {
             downsample = atoi(argv[argc - 1]);
         }
     }
+#ifdef DEBUG
+    uint8_t buf[18] = {128,129,130,131,132,133,134,135,
+                       136,137,138,139,140,141,142,143, 0,0};
+    len = sizeof(buf)/sizeof(*buf);
+
+    printf("%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n"
+           "%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n",
+           buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
+           buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17]);
+    printf("\n");
+#else
+    uint8_t previousR, previousJ;
+    uint8_t *inBuf;
+    uint8_t *buf;
+    FILE *file;
 
     depth = len = readFileData(inPath, &inBuf) + 2;
     buf = calloc(len, INPUT_ELEMENT_BYTES);
@@ -424,7 +430,7 @@ int main(int argc, char **argv) {
 
 #ifdef DEBUG
     for (i = 0; i < depth; ++i) {
-        union m256_16 temp = {.v = buf16[i]};
+        union m256_16 temp = {.v = lowPassed[i]};
         printf("(%hd + %hdI),\t(%hd + %hdI)\n",
                temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
@@ -445,7 +451,7 @@ int main(int argc, char **argv) {
     printf("\n");
 #endif
 
-    /*depth = */demodulateFmData(lowPassed, depth, &result);
+    depth = demodulateFmData(lowPassed, depth, &result);
 
 #ifdef DEBUG
 //    printf("%f, %f\n", result[0], result[1]);
