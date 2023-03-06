@@ -69,7 +69,7 @@ static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 static uint32_t rfdcBlockScalar = 9 + 1;
 static uint32_t adcBlockScalar = 9 + 1;
-static __m128 rfdcBlockRVect;
+static __m128 rfdcBlockVect;
 static __m128 rfdcBlockRVectP1;
 static __m128 adcBlockVector;
 static __m128 adcBlockRVector;
@@ -179,11 +179,8 @@ static void filterRawDc(__m128 *buf, const uint32_t len) {
 
     static __m128 dcAvgIq = {0,0,0,0};
 
-    const __m128 halfLen = _mm_set1_ps(1.f/(2.f*len)); // 1 / (length/2), for length = (depth*width)
+    const __m128 halfLen = _mm_set1_ps(1.f/(len << 1)); // 1 / (length/2), for length = (depth*width)
                                                           // = depth*4 => 1/(2 depth) => 1/(2 len)
-    const __m128 rfdcBlockRVect = _mm_set1_ps(rfdcBlockScalar);
-    const __m128 rfdcBlockVectP1 = _mm_set1_ps(1.f/(rfdcBlockScalar + 1));
-
     __m128 sumIq = {0,0,0,0};
     __m128 avgIq;
     int i;
@@ -195,8 +192,8 @@ static void filterRawDc(__m128 *buf, const uint32_t len) {
     sumIq = _mm_add_ps(sumIq,_mm_permute_ps(sumIq, _MM_SHUFFLE(0,1,3,2)));
 
     avgIq = _mm_mul_ps(sumIq, halfLen);
-    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rfdcBlockRVect));
-    avgIq = _mm_mul_ps(avgIq, rfdcBlockVectP1);
+    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rfdcBlockVect));
+    avgIq = _mm_mul_ps(avgIq, rfdcBlockRVectP1);
 
     for (i = 0; i < len; ++i) {
         buf[i] = _mm_sub_ps(buf[i], avgIq);
@@ -316,8 +313,8 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
 
 static void initializeEnv(void) {
 
-    rfdcBlockRVect = _mm_set1_ps(rfdcBlockScalar);
-    rfdcBlockRVectP1 = _mm_set1_ps(rfdcBlockScalar + 1);
+    rfdcBlockVect = _mm_set1_ps(rfdcBlockScalar);
+    rfdcBlockRVectP1 = _mm_set1_ps(1.f/(rfdcBlockScalar + 1));
 
     const int16_t adcScalarP1 = adcBlockScalar + 1;
     adcBlockVector = _mm_set1_ps(adcBlockScalar);
