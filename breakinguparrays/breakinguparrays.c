@@ -20,7 +20,7 @@
 #include <math.h>
 #include <time.h>
 
-//#define DEBUG
+#define DEBUG
 #ifdef DEBUG
 #include <assert.h>
 #endif
@@ -31,22 +31,22 @@
 #define VECTOR_WIDTH 4
 #define LOG2_VECTOR_WIDTH 2
 #define MAXIMUM_BUF_SIZE 1L << 33
-#define FLOAT_S_FLIP_MASK  0x7FFFFFFFU
 
-union m256_f {
+union m128_f {
     float buf[4];
     __m128 v;
 };
 
 struct rotationMatrix {
-    const union m256_f a1;
-    const union m256_f a2;
+    const union m128_f a1;
+    const union m128_f a2;
 };
 
 static const __m128 NEGATE_B_IM = {1.f,1.f,1.f,-1.f};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
-
+static const __m128i FLOAT_ABS // all 0x7FFFFFFFUs
+    = {9223372034707292159, 9223372034707292159};
 static const struct rotationMatrix PI_OVER_TWO_ROTATION = {
         {0,-1,0,-1},
         {1,0,1,0}
@@ -178,9 +178,9 @@ static uint32_t downSample(__m128 *buf, uint32_t len, const uint32_t downsample)
 static void filterRawDc(__m128 *buf, const uint32_t len) {
 
     static __m128 dcAvgIq = {0,0,0,0};
-    const __m128i FLOAT_ABS = _mm_set1_epi32(FLOAT_S_FLIP_MASK);
+
     const __m128 halfLen = _mm_set1_ps(1.f/(len << 1)); // 1 / (length/2), for length = (depth*width)
-                                                          // = depth*4 => 1/(2 depth) => 1/(2 len)
+                                                           // = depth*4 => 1/(2 depth) => 1/(2 len)
     __m128 sumIq = {0,0,0,0};
     __m128 avgIq;
     int i;
@@ -211,15 +211,6 @@ static void rotateForNonOffsetTuning(__m128 *buf, const uint32_t len) {
     }
 }
 
-static void convertToFloat(const __m256i *buf, const uint32_t len, __m128 *result) {
-
-    uint32_t i;
-
-    for (i = 0; i < len; ++i) {
-        result[i] = mm256Epi8convertPs(_mm256_sub_epi8(buf[i], Z));
-    }
-}
-
 static void findMaxSample(const __m256i *buf8, const uint32_t len) {
 
     uint32_t i;
@@ -244,7 +235,7 @@ static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result
 }
 
 
-static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m256i *result) {
+static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m128 *result) {
 
     uint32_t j = 0;
     uint32_t i;
@@ -258,7 +249,7 @@ static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m256i *result)
     for (i = 0; leftToProcess > 0; i += VECTOR_WIDTH) {
 
         memcpy(z.buf, buf + i, VECTOR_WIDTH);
-        result[j++] = z.v;
+        result[j++] = mm256Epi8convertPs(_mm256_sub_epi8(z.v, Z));
         leftToProcess -= VECTOR_WIDTH;
     }
 
@@ -272,11 +263,10 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **b
     uint32_t count = (len & 3) != 0 // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0))
             ? (len >> LOG2_VECTOR_WIDTH) + 1
             : (len >> LOG2_VECTOR_WIDTH);
-    __m256i *buf8 = calloc(count, sizeof(__m256i));
 
     *buff = calloc(count, sizeof(__m256));
 
-    depth = breakit(buf, len, buf8);
+    depth = breakit(buf, len, *buff);
 
     if (isCheckADCMax) {
         for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
@@ -284,12 +274,8 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **b
         }
         samplePowSum += samplePowSum / len;
 
-        findMaxSample(buf8, depth); // TODO fix this for nx4 matrix
+//        findMaxSample(buf8, depth); // TODO fix this for nx4 float matrix
     }
-
-    convertToFloat(buf8, depth, *buff);
-
-    free(buf8);
 
     if (isRdc) {
         filterRawDc(*buff, depth);
@@ -332,7 +318,7 @@ uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
         (*result)[j] = buf[i];
         (*result)[j + 1] = _mm_blend_ps(buf[i], buf[i + 1], 0b0011);
 #ifdef DEBUG
-        union m256_f temp = {.v = (*result)[j]};
+        union m128_f temp = {.v = (*result)[j]};
         printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
                temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
 
@@ -435,7 +421,7 @@ int main(int argc, char **argv) {
 #ifdef DEBUG
     printf("Processed matrix:\n");
     for (i = 0; i < depth; ++i) {
-        union m256_f temp = {.v = lowPassed[i]};
+        union m128_f temp = {.v = lowPassed[i]};
         printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
                temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
@@ -447,7 +433,7 @@ int main(int argc, char **argv) {
 #ifdef DEBUG
     printf("Downsampled and windowed:\n");
     for (i = 0; i < depth; ++i) {
-        union m256_f temp = {.v = lowPassed[i]};
+        union m128_f temp = {.v = lowPassed[i]};
         printf("(%.02f + %.02fI),\t(%.02f + %.02fI)\n",
             temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
