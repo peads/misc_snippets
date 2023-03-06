@@ -31,6 +31,7 @@
 #define VECTOR_WIDTH 4
 #define LOG2_VECTOR_WIDTH 2
 #define MAXIMUM_BUF_SIZE 1L << 33
+#define FLOAT_S_FLIP_MASK  0x7FFFFFFFU
 
 union m256_f {
     float buf[4];
@@ -45,7 +46,6 @@ struct rotationMatrix {
 static const __m128 NEGATE_B_IM = {1.f,1.f,1.f,-1.f};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
-
 
 static const struct rotationMatrix PI_OVER_TWO_ROTATION = {
         {0,-1,0,-1},
@@ -67,10 +67,10 @@ static uint8_t isCheckADCMax;
 static uint8_t isRdc;
 static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
-static uint32_t rfdcBlockScalar = 9 + 1;
+static uint32_t rdcBlockScalar = 9 + 1;
 static uint32_t adcBlockScalar = 9 + 1;
-static __m128 rfdcBlockVect;
-static __m128 rfdcBlockRVectP1;
+static __m128 rdcBlockVect;
+static __m128 rdcBlockRVectP1;
 static __m128 adcBlockVector;
 static __m128 adcBlockRVector;
 static __m128 adcBlockVect1;
@@ -178,7 +178,7 @@ static uint32_t downSample(__m128 *buf, uint32_t len, const uint32_t downsample)
 static void filterRawDc(__m128 *buf, const uint32_t len) {
 
     static __m128 dcAvgIq = {0,0,0,0};
-
+    const __m128i FLOAT_ABS = _mm_set1_epi32(FLOAT_S_FLIP_MASK);
     const __m128 halfLen = _mm_set1_ps(1.f/(len << 1)); // 1 / (length/2), for length = (depth*width)
                                                           // = depth*4 => 1/(2 depth) => 1/(2 len)
     __m128 sumIq = {0,0,0,0};
@@ -190,10 +190,11 @@ static void filterRawDc(__m128 *buf, const uint32_t len) {
          _mm_permute_ps(buf[i], _MM_SHUFFLE(0,1,3,2))));
     }
     sumIq = _mm_add_ps(sumIq,_mm_permute_ps(sumIq, _MM_SHUFFLE(0,1,3,2)));
+    sumIq = _mm_and_si128(sumIq, FLOAT_ABS);
 
     avgIq = _mm_mul_ps(sumIq, halfLen);
-    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rfdcBlockVect));
-    avgIq = _mm_mul_ps(avgIq, rfdcBlockRVectP1);
+    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rdcBlockVect));
+    avgIq = _mm_mul_ps(avgIq, rdcBlockRVectP1);
 
     for (i = 0; i < len; ++i) {
         buf[i] = _mm_sub_ps(buf[i], avgIq);
@@ -313,8 +314,8 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
 
 static void initializeEnv(void) {
 
-    rfdcBlockVect = _mm_set1_ps(rfdcBlockScalar);
-    rfdcBlockRVectP1 = _mm_set1_ps(1.f/(rfdcBlockScalar + 1));
+    rdcBlockVect = _mm_set1_ps(rdcBlockScalar);
+    rdcBlockRVectP1 = _mm_set1_ps(1.f/(rdcBlockScalar + 1));
 
     const int16_t adcScalarP1 = adcBlockScalar + 1;
     adcBlockVector = _mm_set1_ps(adcBlockScalar);
