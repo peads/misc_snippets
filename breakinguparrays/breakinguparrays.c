@@ -20,7 +20,7 @@
 #include <math.h>
 #include <time.h>
 
-#define DEBUG
+//#define DEBUG
 #ifdef DEBUG
 #include <assert.h>
 #endif
@@ -264,7 +264,7 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **b
             ? (len >> LOG2_VECTOR_WIDTH) + 1
             : (len >> LOG2_VECTOR_WIDTH);
 
-    *buff = calloc(count, sizeof(__m256));
+    *buff = calloc(count, sizeof(__m128));
 
     depth = breakit(buf, len, *buff);
 
