@@ -65,15 +65,15 @@ static const struct rotationMatrix CONJ_TRANSFORM = {
 static uint8_t sampleMax = 0;
 static uint8_t isCheckADCMax;
 static uint8_t isRdc;
+static uint8_t isAdc;
 static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 static uint32_t rdcBlockScalar = 9 + 1;
 static uint32_t adcBlockScalar = 9 + 1;
 static __m128 rdcBlockVect;
 static __m128 rdcBlockRVectP1;
-static __m128 adcBlockVector;
-static __m128 adcBlockRVector;
-static __m128 adcBlockVect1;
+static __m128 adcBlockVect;
+static __m128 adcBlockRVectP1;
 
 /**
  * Takes two packed int16_ts representing the complex numbers
@@ -113,6 +113,19 @@ __asm__(
     // B I G pop and return
     "vmovq (%rsp), %xmm0 \n\t"
     "add $32, %rsp \n\t"
+    "ret"
+);
+
+extern float ffabsf(float x);
+__asm__( // ffabsf
+#ifdef __clang__
+"_ffabsf: "
+#else
+"ffabsf: "
+#endif
+    "movq %xmm0, %rax\n\t"
+    "andl $0x7FFFFFFF, %eax\n\t"
+    "movq %rax, %xmm0\n\t"
     "ret"
 );
 
@@ -175,7 +188,45 @@ static uint32_t downSample(__m128 *buf, uint32_t len, const uint32_t downsample)
     return len >> downsample;
 }
 
-static void filterRawDc(__m128 *buf, const uint32_t len) {
+//static void filterDCAudio(__m128 *buf, const uint32_t len) {
+//    static __m128 dcAvg = {0,0,0,0};
+//
+//    const __m128 halfLen = _mm_set1_ps(1.f/(len << 2));
+//
+//    uint32_t i;
+//    __m128 sum = {0,0,0,0};
+//    __m128 avg;
+//    for (i = 0; i < len; ++i) {
+//        sum = _mm_add_ps(sum, buf[i]);
+//    }
+//    sum =  _mm_add_ps(sum,_mm_permute_ps(sum, _MM_SHUFFLE(0,1,2,3)));
+//
+//    avg = _mm_mul_ps(sum, halfLen);
+//    avg = _mm_add_ps(avg, _mm_mul_ps(dcAvg, adcBlockVect));
+//    avg = _mm_mul_ps(avg, adcBlockRVectP1);
+//}
+
+void filterDCAudio(float *buf, const uint32_t len)
+{
+    static float dcAvg = 0.f;
+
+    int i;
+    float avg;
+    float sum = 0.f;
+
+    for (i=0; i < len; i++) {
+        if (!isnan(buf[i])) sum += buf[i];
+    }
+
+    avg = ffabsf(sum) / len;
+    avg = (avg + dcAvg * adcBlockScalar) / (adcBlockScalar + 1 );
+    for (i=0; i < len; i++) {
+        buf[i] -= avg;
+    }
+    dcAvg = avg;
+}
+
+static void filterDCRawIQ(__m128 *buf, const uint32_t len) {
 
     static __m128 dcAvgIq = {0,0,0,0};
 
@@ -278,7 +329,7 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **b
     }
 
     if (isRdc) {
-        filterRawDc(*buff, depth);
+        filterDCRawIQ(*buff, depth);
     }
 
     if (!isOffsetTuning) {
@@ -303,9 +354,8 @@ static void initializeEnv(void) {
     rdcBlockVect = _mm_set1_ps(rdcBlockScalar);
     rdcBlockRVectP1 = _mm_set1_ps(1.f/(rdcBlockScalar + 1));
 
-    const int16_t adcScalarP1 = adcBlockScalar + 1;
-    adcBlockVector = _mm_set1_ps(adcBlockScalar);
-    adcBlockVect1 = _mm_set1_ps(adcScalarP1);
+    adcBlockVect = _mm_set1_ps(adcBlockScalar);
+    adcBlockRVectP1 = _mm_set1_ps(1.f/(adcBlockScalar + 1));
 }
 
 uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
@@ -332,28 +382,29 @@ uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
 
 int main(int argc, char **argv) {
 
+    static uint8_t previousR, previousJ;
+
     int i = 1;
-    int j;
     uint64_t depth;
     uint32_t len;
     float *result;
     __m128 *lowPassed;
     __m128 *permuted;
     uint32_t downsample;
-    int argsCount;
+    int argsProcessed;
 
 #ifndef DEBUG
     char *inPath, *outPath;
-    argsCount = 3;
+    argsProcessed = 3;
 #else
-    argsCount = 1;
+    argsProcessed = 1;
 #endif
 
-    if (argc < argsCount) {
+    if (argc < argsProcessed) {
         return -1;
     } else {
         isCheckADCMax = 0;
-        isRdc = 0;
+        isAdc = isRdc = 0;
         isOffsetTuning = 0;
         downsample = 1;
 
@@ -366,22 +417,22 @@ int main(int argc, char **argv) {
             switch (argv[i][0]){
                 case 'r':
                     isRdc = 1;
-                    argsCount++;
+                    argsProcessed++;
                     break;
                 case 'a':
-                    isCheckADCMax = 1;
-                    argsCount++;
+                    isAdc = 1;
+                    argsProcessed++;
                     break;
                 case 'o':
                     isOffsetTuning = 1;
-                    argsCount++;
+                    argsProcessed++;
                 default:
-                    argsCount--;
+                    argsProcessed--;
                     break;
             }
         }
 
-        if (argsCount != argc) {
+        if (argsProcessed != argc) {
             downsample = atoi(argv[argc - 1]);
         }
     }
@@ -397,12 +448,11 @@ int main(int argc, char **argv) {
            buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
            buf[16], buf[17]);
 #else
-    uint8_t previousR, previousJ;
     uint8_t *inBuf;
     uint8_t *buf;
     FILE *file;
 
-    depth = len = readFileData(inPath, &inBuf) + 2;
+    len = readFileData(inPath, &inBuf) + 2;
     buf = calloc(len, INPUT_ELEMENT_BYTES);
 
     buf[0] = previousR;
@@ -441,9 +491,14 @@ int main(int argc, char **argv) {
 #endif
 
     depth = permutePairsForDemod(lowPassed, depth, &permuted);
+    free(lowPassed);
 
     depth = demodulateFmData(permuted, depth, &result);
+    free(permuted);
 
+    if (isAdc) {
+        filterDCAudio(result, depth);
+    }
 #ifdef DEBUG
     printf("\nPhase angles:\n");
     for (i = 0; i < depth; ++i) {
@@ -456,7 +511,5 @@ int main(int argc, char **argv) {
     fclose(file);
 #endif
 
-    free(permuted);
-    free(lowPassed);
     free(result);
 }
