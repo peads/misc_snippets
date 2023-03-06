@@ -70,7 +70,6 @@ static uint32_t samplePowSum = 0;
 static uint32_t rfdcBlockScalar = 9 + 1;
 static uint32_t adcBlockScalar = 9 + 1;
 static __m128 rfdcBlockVector;
-static __m128 rfdcBlockRVector;
 static __m128 rfdcBlockVect1;
 static __m128 adcBlockVector;
 static __m128 adcBlockRVector;
@@ -180,7 +179,9 @@ static void filterRawDc(__m128 *buf, const uint32_t len) {
 
     static __m128 dcAvgIq = {0,0,0,0};
 
-    const __m128 halfLen = _mm_set1_ps(len / 2.f);
+    const __m128 halfLen = _mm_set1_ps(len << 1);
+    const __m128 rfdcBlockRVect = _mm_set1_ps(rfdcBlockScalar);
+    const __m128 rfdcBlockRVectP1 = _mm_set1_ps(rfdcBlockScalar + 1);
 
     __m128 sumIq = {0,0,0,0};
     __m128 avgIq;
@@ -188,18 +189,17 @@ static void filterRawDc(__m128 *buf, const uint32_t len) {
 
     for (i = 0; i < len; ++i) {
         sumIq = _mm_add_ps(sumIq, _mm_add_ps(buf[i],
-         _mm_permute_ps(buf[i], _MM_SHUFFLE(2, 3, 0, 1))));
+         _mm_permute_ps(buf[i], _MM_SHUFFLE(0,1,3,2))));
     }
+    sumIq = _mm_add_ps(sumIq,_mm_permute_ps(sumIq, _MM_SHUFFLE(0,1,3,2)));
 
     avgIq = _mm_div_ps(sumIq, halfLen);
-    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, _mm_set1_ps(rfdcBlockScalar)));
-    avgIq = _mm_div_ps(avgIq, _mm_set1_ps(rfdcBlockScalar + 1));
+    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rfdcBlockRVect));
+    avgIq = _mm_div_ps(avgIq, rfdcBlockRVectP1);
 
-    union m256_f temp = {.v = avgIq};
     for (i = 0; i < len; ++i) {
         buf[i] = _mm_sub_ps(buf[i], avgIq);
     }
-
     dcAvgIq = avgIq;
 }
 
@@ -318,12 +318,10 @@ static void initializeEnv(void) {
     const int16_t rfdcScalarP1 = rfdcBlockScalar + 1;
     rfdcBlockVector = _mm_set1_ps(rfdcBlockScalar);
     rfdcBlockVect1 = _mm_set1_ps(rfdcScalarP1);
-    rfdcBlockRVector = _mm_set1_ps(1.f / rfdcScalarP1);
 
     const int16_t adcScalarP1 = adcBlockScalar + 1;
     adcBlockVector = _mm_set1_ps(adcBlockScalar);
     adcBlockVect1 = _mm_set1_ps(adcScalarP1);
-    adcBlockRVector = _mm_set1_ps(32768 / adcScalarP1);
 }
 
 uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
@@ -452,7 +450,7 @@ int main(int argc, char **argv) {
     printf("Downsampled and windowed:\n");
     for (i = 0; i < depth; ++i) {
         union m256_f temp = {.v = lowPassed[i]};
-        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
+        printf("(%.02f + %.02fI),\t(%.02f + %.02fI)\n",
             temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
     printf("\nPermuted pairs:\n");
