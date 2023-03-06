@@ -28,6 +28,8 @@
 #define INPUT_ELEMENT_BYTES 1
 // sizeof(float)
 #define OUTPUT_ELEMENT_BYTES 5
+// sizeof(__m128)
+#define MATRIX_ELEMENT_BYTES 16
 #define VECTOR_WIDTH 4
 #define LOG2_VECTOR_WIDTH 2
 #define MAXIMUM_BUF_SIZE 1L << 33
@@ -315,7 +317,7 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **b
             ? (len >> LOG2_VECTOR_WIDTH) + 1
             : (len >> LOG2_VECTOR_WIDTH);
 
-    *buff = calloc(count, sizeof(__m128));
+    *buff = calloc(count, MATRIX_ELEMENT_BYTES);
 
     depth = breakit(buf, len, *buff);
 
@@ -362,7 +364,7 @@ uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
 
     int i,j;
 
-    *result = calloc(len << 1, sizeof(__m128));
+    *result = calloc(len << 1, MATRIX_ELEMENT_BYTES);
 
     for (i = 0, j = 0; i < len; ++i, j+=2) {
         (*result)[j] = buf[i];
