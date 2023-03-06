@@ -101,6 +101,8 @@ __asm__(
     "vsqrtps %xmm1, %xmm1\n\t"              // ..., Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "vdivps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
 
+    "comiss %xmm0, %xmm1\n\t"
+    "jp zero\n\t"
     // push
     "sub $16, %rsp \n\t"
     "vextractps $1, %xmm0, (%rsp) \n\t"
@@ -115,6 +117,11 @@ __asm__(
     // B I G pop and return
     "vmovq (%rsp), %xmm0 \n\t"
     "add $32, %rsp \n\t"
+    "jmp return\n\t"
+
+"zero: "
+    "vxorps %xmm0, %xmm0, %xmm0\n\t"
+"return: "
     "ret"
 );
 
@@ -217,7 +224,7 @@ void filterDCAudio(float *buf, const uint32_t len)
     float sum = 0.f;
 
     for (i=0; i < len; i++) {
-        if (!isnan(buf[i])) sum += buf[i];
+        sum += buf[i];
     }
 
     avg = ffabsf(sum) / len;
