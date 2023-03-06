@@ -20,7 +20,7 @@
 #include <math.h>
 #include <time.h>
 
-#define DEBUG
+//#define DEBUG
 #ifdef DEBUG
 #include <assert.h>
 #endif
@@ -46,13 +46,42 @@ static const __m128 NEGATE_B_IM = {1.f,1.f,1.f,-1.f};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 
+
+static const struct rotationMatrix PI_OVER_TWO_ROTATION = {
+        {0,-1,0,-1},
+        {1,0,1,0}
+};
+
+static const struct rotationMatrix THREE_PI_OVER_TWO_ROTATION = {
+        {0,1, 0,1},
+        {-1,0, -1,0}
+};
+
+static const struct rotationMatrix CONJ_TRANSFORM = {
+        {1, 0, 1, 0},
+        {0, -1, 0, -1}
+};
+
+static uint8_t sampleMax = 0;
+static uint8_t isCheckADCMax;
+static uint8_t isRdc;
+static uint8_t isOffsetTuning;
+static uint32_t samplePowSum = 0;
+static uint32_t rfdcBlockScalar = 9 + 1;
+static uint32_t adcBlockScalar = 9 + 1;
+static __m128 rfdcBlockVector;
+static __m128 rfdcBlockRVector;
+static __m128 rfdcBlockVect1;
+static __m128 adcBlockVector;
+static __m128 adcBlockRVector;
+static __m128 adcBlockVect1;
+
 /**
  * Takes two packed int16_ts representing the complex numbers
  * (ar + iaj), (br + ibj), s.t. z = {ar, br, aj, bj}
  * and returns their argument as a float
  **/
 extern float argzB(__m128 a);
-uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result);
 __asm__(
 #ifdef __clang__
 "_argzB: "
@@ -87,36 +116,6 @@ __asm__(
     "add $32, %rsp \n\t"
     "ret"
 );
-
-static const struct rotationMatrix PI_OVER_TWO_ROTATION = {
-        {0,-1,0,-1},
-        {1,0,1,0}
-};
-
-static const struct rotationMatrix THREE_PI_OVER_TWO_ROTATION = {
-        {0,1, 0,1},
-            {-1,0, -1,0}
-};
-
-static const struct rotationMatrix CONJ_TRANSFORM = {
-        {1, 0, 1, 0},
-        {0, -1, 0, -1}
-};
-
-
-static uint8_t sampleMax = 0;
-static uint8_t isCheckADCMax;
-static uint8_t isRdc;
-static uint8_t isOffsetTuning;
-static uint32_t samplePowSum = 0;
-static uint32_t rdcBlockScalar = 9 + 1;
-static uint32_t adcBlockScalar = 9 + 1;
-static __m128 rdcBlockVector;
-static __m128 rdcBlockRVector;
-static __m128 rdcBlockVect1;
-static __m128 adcBlockVector;
-static __m128 adcBlockRVector;
-static __m128 adcBlockVect1;
 
 static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
     return a > b ? a : b;
@@ -181,7 +180,7 @@ static void filterRawDc(__m128 *buf, const uint32_t len) {
 
     static __m128 dcAvgIq = {0,0,0,0};
 
-    const __m128 oneOverHalfLen = _mm_set1_ps(2.f / len); // 1/(len/2) = 2/len
+    const __m128 halfLen = _mm_set1_ps(len / 2.f);
 
     __m128 sumIq = {0,0,0,0};
     __m128 avgIq;
@@ -192,11 +191,11 @@ static void filterRawDc(__m128 *buf, const uint32_t len) {
          _mm_permute_ps(buf[i], _MM_SHUFFLE(2, 3, 0, 1))));
     }
 
-    avgIq = _mm_mul_ps(sumIq, oneOverHalfLen);
-    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rdcBlockVector));
-    avgIq = _mm_mul_ps(avgIq, rdcBlockRVector);
-    avgIq = _mm_mul_ps(avgIq, rdcBlockVect1);
+    avgIq = _mm_div_ps(sumIq, halfLen);
+    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, _mm_set1_ps(rfdcBlockScalar)));
+    avgIq = _mm_div_ps(avgIq, _mm_set1_ps(rfdcBlockScalar + 1));
 
+    union m256_f temp = {.v = avgIq};
     for (i = 0; i < len; ++i) {
         buf[i] = _mm_sub_ps(buf[i], avgIq);
     }
@@ -213,12 +212,12 @@ static void rotateForNonOffsetTuning(__m128 *buf, const uint32_t len) {
     }
 }
 
-static void convertToFloat(const __m256i *buf, const uint32_t len, __m128 *buff) {
+static void convertToFloat(const __m256i *buf, const uint32_t len, __m128 *result) {
 
     uint32_t i;
 
     for (i = 0; i < len; ++i) {
-        buff[i] = mm256Epi8convertPs(_mm256_sub_epi8(buf[i], Z));
+        result[i] = mm256Epi8convertPs(_mm256_sub_epi8(buf[i], Z));
     }
 }
 
@@ -246,7 +245,7 @@ static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result
 }
 
 
-static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8) {
+static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m256i *result) {
 
     uint32_t j = 0;
     uint32_t i;
@@ -260,7 +259,7 @@ static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m256i *buf8) {
     for (i = 0; leftToProcess > 0; i += VECTOR_WIDTH) {
 
         memcpy(z.buf, buf + i, VECTOR_WIDTH);
-        buf8[j++] = z.v;
+        result[j++] = z.v;
         leftToProcess -= VECTOR_WIDTH;
     }
 
@@ -316,15 +315,37 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
 
 static void initializeEnv(void) {
 
-    const int16_t rdcScalarP1 = rdcBlockScalar + 1;
-    rdcBlockVector = _mm_set1_ps(rdcBlockScalar);
-    rdcBlockVect1 = _mm_set1_ps(rdcScalarP1);
-    rdcBlockRVector = _mm_set1_ps(32768 / rdcScalarP1);
+    const int16_t rfdcScalarP1 = rfdcBlockScalar + 1;
+    rfdcBlockVector = _mm_set1_ps(rfdcBlockScalar);
+    rfdcBlockVect1 = _mm_set1_ps(rfdcScalarP1);
+    rfdcBlockRVector = _mm_set1_ps(1.f / rfdcScalarP1);
 
     const int16_t adcScalarP1 = adcBlockScalar + 1;
     adcBlockVector = _mm_set1_ps(adcBlockScalar);
     adcBlockVect1 = _mm_set1_ps(adcScalarP1);
     adcBlockRVector = _mm_set1_ps(32768 / adcScalarP1);
+}
+
+uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
+
+    int i,j;
+
+    *result = calloc(len << 1, sizeof(__m128));
+
+    for (i = 0, j = 0; i < len; ++i, j+=2) {
+        (*result)[j] = buf[i];
+        (*result)[j + 1] = _mm_blend_ps(buf[i], buf[i + 1], 0b0011);
+#ifdef DEBUG
+        union m256_f temp = {.v = (*result)[j]};
+        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
+               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
+
+        temp.v = (*result)[j + 1];
+        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
+               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
+#endif
+    }
+    return (len & 3) != 0 ? (len << 1) - 1 : len << 1;
 }
 
 int main(int argc, char **argv) {
@@ -389,10 +410,10 @@ int main(int argc, char **argv) {
     len = sizeof(buf)/sizeof(*buf);
 
     printf("%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n"
-           "%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n",
+           "%hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu, %hhu\n\n",
            buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
-           buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17]);
-    printf("\n");
+           buf[8],buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15],
+           buf[16], buf[17]);
 #else
     uint8_t previousR, previousJ;
     uint8_t *inBuf;
@@ -456,26 +477,4 @@ int main(int argc, char **argv) {
     free(permuted);
     free(lowPassed);
     free(result);
-}
-
-uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
-
-    int i,j;
-
-    *result = calloc(len << 1, sizeof(__m128));
-
-    for (i = 0, j = 0; i < len; ++i, j+=2) {
-        (*result)[j] = buf[i];
-        (*result)[j + 1] = _mm_blend_ps(buf[i], buf[i + 1], 0b0011);
-#ifdef DEBUG
-        union m256_f temp = {.v = (*result)[j]};
-        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
-               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
-
-        temp.v = (*result)[j + 1];
-        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
-               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
-#endif
-    }
-    return len << 1;
 }
