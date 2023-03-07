@@ -236,30 +236,35 @@ void filterDCAudio(float *buf, const uint32_t len)
 }
 
 static void filterDCRawIQ(__m128 *buf, const uint32_t len) {
-
+    static const __m128 ratio = {1e-05f,1e-05f,1e-05f,1e-05f};
     static __m128 dcAvgIq = {0,0,0,0};
 
-    const __m128 halfLen = _mm_set1_ps(1.f/(len << 1)); // 1 / (length/2), for length = (depth*width)
+//    const __m128 halfLen = _mm_set1_ps(1.f/(len << 1)); // 1 / (length/2), for length = (depth*width)
                                                            // = depth*4 => 1/(2 depth) => 1/(2 len)
-    __m128 sumIq = {0,0,0,0};
-    __m128 avgIq;
+//    __m128 sumIq = {0,0,0,0};
+//    __m128 avgIq;
     int i;
 
     for (i = 0; i < len; ++i) {
-        sumIq = _mm_add_ps(sumIq, _mm_add_ps(buf[i],
-         _mm_permute_ps(buf[i], _MM_SHUFFLE(0,1,3,2))));
+        dcAvgIq = _mm_add_ps(dcAvgIq, _mm_mul_ps(ratio, _mm_sub_ps(buf[i], dcAvgIq)));
+        buf[i] = _mm_sub_ps(buf[i], dcAvgIq);
     }
-    sumIq = _mm_add_ps(sumIq,_mm_permute_ps(sumIq, _MM_SHUFFLE(0,1,3,2)));
-    sumIq = _mm_and_si128(sumIq, FLOAT_ABS);
 
-    avgIq = _mm_mul_ps(sumIq, halfLen);
-    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rdcBlockVect));
-    avgIq = _mm_mul_ps(avgIq, rdcBlockRVectP1);
-
-    for (i = 0; i < len; ++i) {
-        buf[i] = _mm_sub_ps(buf[i], avgIq);
-    }
-    dcAvgIq = avgIq;
+//    for (i = 0; i < len; ++i) {
+//        sumIq = _mm_add_ps(sumIq, _mm_add_ps(buf[i],
+//         _mm_permute_ps(buf[i], _MM_SHUFFLE(0,1,3,2))));
+//    }
+//    sumIq = _mm_add_ps(sumIq,_mm_permute_ps(sumIq, _MM_SHUFFLE(0,1,3,2)));
+//    sumIq = _mm_and_si128(sumIq, FLOAT_ABS);
+//
+//    avgIq = _mm_mul_ps(sumIq, halfLen);
+//    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rdcBlockVect));
+//    avgIq = _mm_mul_ps(avgIq, rdcBlockRVectP1);
+//
+//    for (i = 0; i < len; ++i) {
+//        buf[i] = _mm_sub_ps(buf[i], avgIq);
+//    }
+//    dcAvgIq = avgIq;
 }
 
 static void rotateForNonOffsetTuning(__m128 *buf, const uint32_t len) {
@@ -371,7 +376,7 @@ uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
 
     int i,j;
 
-    *result = calloc(len << 1, MATRIX_ELEMENT_BYTES);
+    *result = calloc(len << 2, MATRIX_ELEMENT_BYTES);
 
     for (i = 0, j = 0; i < len; ++i, j+=2) {
         (*result)[j] = buf[i];
@@ -386,7 +391,7 @@ uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
                temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
 #endif
     }
-    return (len & 3) != 0 ? (len << 1) - 1 : len << 1;
+    return len << 2;
 }
 
 int main(int argc, char **argv) {
