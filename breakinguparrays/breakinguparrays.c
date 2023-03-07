@@ -70,12 +70,6 @@ static uint8_t isRdc;
 static uint8_t isAdc;
 static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
-static uint32_t rdcBlockScalar = 9 + 1;
-static uint32_t adcBlockScalar = 9 + 1;
-static __m128 rdcBlockVect;
-static __m128 rdcBlockRVectP1;
-static __m128 adcBlockVect;
-static __m128 adcBlockRVectP1;
 
 /**
  * Takes two packed int16_ts representing the complex numbers
@@ -197,74 +191,39 @@ static uint32_t downSample(__m128 *buf, uint32_t len, const uint32_t downsample)
     return len >> downsample;
 }
 
-//static void filterDCAudio(__m128 *buf, const uint32_t len) {
-//    static __m128 dcAvg = {0,0,0,0};
+//void filterDCAudio(float *buf, const uint32_t len)
+//{
+//    static float dcAvg = 0.f;
 //
-//    const __m128 halfLen = _mm_set1_ps(1.f/(len << 2));
+//    int i;
+//    float avg;
+//    float sum = 0.f;
 //
-//    uint32_t i;
-//    __m128 sum = {0,0,0,0};
-//    __m128 avg;
-//    for (i = 0; i < len; ++i) {
-//        sum = _mm_add_ps(sum, buf[i]);
+//    for (i=0; i < len; i++) {
+//        sum += buf[i];
 //    }
-//    sum =  _mm_add_ps(sum,_mm_permute_ps(sum, _MM_SHUFFLE(0,1,2,3)));
 //
-//    avg = _mm_mul_ps(sum, halfLen);
-//    avg = _mm_add_ps(avg, _mm_mul_ps(dcAvg, adcBlockVect));
-//    avg = _mm_mul_ps(avg, adcBlockRVectP1);
+//    avg = ffabsf(sum) / len;
+//    avg = (avg + dcAvg * adcBlockScalar) / (adcBlockScalar + 1 );
+//    for (i=0; i < len; i++) {
+//        buf[i] -= avg;
+//    }
+//    dcAvg = avg;
 //}
 
-void filterDCAudio(float *buf, const uint32_t len)
-{
-    static float dcAvg = 0.f;
+static void removeDCSpike(__m128 *buf, const uint32_t len) {
 
-    int i;
-    float avg;
-    float sum = 0.f;
+    // Rolling average IIR filter
 
-    for (i=0; i < len; i++) {
-        sum += buf[i];
-    }
-
-    avg = ffabsf(sum) / len;
-    avg = (avg + dcAvg * adcBlockScalar) / (adcBlockScalar + 1 );
-    for (i=0; i < len; i++) {
-        buf[i] -= avg;
-    }
-    dcAvg = avg;
-}
-
-static void filterDCRawIQ(__m128 *buf, const uint32_t len) {
     static const __m128 ratio = {1e-05f,1e-05f,1e-05f,1e-05f};
     static __m128 dcAvgIq = {0,0,0,0};
 
-//    const __m128 halfLen = _mm_set1_ps(1.f/(len << 1)); // 1 / (length/2), for length = (depth*width)
-                                                           // = depth*4 => 1/(2 depth) => 1/(2 len)
-//    __m128 sumIq = {0,0,0,0};
-//    __m128 avgIq;
     int i;
 
     for (i = 0; i < len; ++i) {
         dcAvgIq = _mm_add_ps(dcAvgIq, _mm_mul_ps(ratio, _mm_sub_ps(buf[i], dcAvgIq)));
         buf[i] = _mm_sub_ps(buf[i], dcAvgIq);
     }
-
-//    for (i = 0; i < len; ++i) {
-//        sumIq = _mm_add_ps(sumIq, _mm_add_ps(buf[i],
-//         _mm_permute_ps(buf[i], _MM_SHUFFLE(0,1,3,2))));
-//    }
-//    sumIq = _mm_add_ps(sumIq,_mm_permute_ps(sumIq, _MM_SHUFFLE(0,1,3,2)));
-//    sumIq = _mm_and_si128(sumIq, FLOAT_ABS);
-//
-//    avgIq = _mm_mul_ps(sumIq, halfLen);
-//    avgIq = _mm_add_ps(avgIq, _mm_mul_ps(dcAvgIq, rdcBlockVect));
-//    avgIq = _mm_mul_ps(avgIq, rdcBlockRVectP1);
-//
-//    for (i = 0; i < len; ++i) {
-//        buf[i] = _mm_sub_ps(buf[i], avgIq);
-//    }
-//    dcAvgIq = avgIq;
 }
 
 static void rotateForNonOffsetTuning(__m128 *buf, const uint32_t len) {
@@ -343,7 +302,7 @@ static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **b
     }
 
     if (isRdc) {
-        filterDCRawIQ(*buff, depth);
+        removeDCSpike(*buff, depth);
     }
 
     if (!isOffsetTuning) {
@@ -361,15 +320,6 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
     fclose(file);
 
     return result;
-}
-
-static void initializeEnv(void) {
-
-    rdcBlockVect = _mm_set1_ps(rdcBlockScalar);
-    rdcBlockRVectP1 = _mm_set1_ps(1.f/(rdcBlockScalar + 1));
-
-    adcBlockVect = _mm_set1_ps(adcBlockScalar);
-    adcBlockRVectP1 = _mm_set1_ps(1.f/(adcBlockScalar + 1));
 }
 
 uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
@@ -478,8 +428,6 @@ int main(int argc, char **argv) {
     free(inBuf);
 #endif
 
-    initializeEnv();
-
     depth = processMatrix(buf, len, &lowPassed);
 
 #ifdef DEBUG
@@ -510,9 +458,9 @@ int main(int argc, char **argv) {
     depth = demodulateFmData(permuted, depth, &result);
     free(permuted);
 
-    if (isAdc) {
-        filterDCAudio(result, depth);
-    }
+//    if (isAdc) {
+//        filterDCAudio(result, depth);
+//    }
 #ifdef DEBUG
     printf("\nPhase angles:\n");
     for (i = 0; i < depth; ++i) {
