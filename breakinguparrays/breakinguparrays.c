@@ -19,6 +19,7 @@
 #include <immintrin.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
 
 //#define DEBUG
 #ifdef DEBUG
@@ -67,7 +68,7 @@ static const struct rotationMatrix CONJ_TRANSFORM = {
 static uint8_t sampleMax = 0;
 static uint8_t isCheckADCMax;
 static uint8_t isRdc;
-static uint8_t isAdc;
+//static uint8_t isAdc;
 static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 
@@ -346,58 +347,54 @@ uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
 
 int main(int argc, char **argv) {
 
-    static uint8_t previousR, previousJ;
-
-    int i = 1;
+    int i;
+    int opt;
     uint64_t depth;
-    uint32_t len;
+    uint64_t len;
+    uint32_t downsample;
     float *result;
     __m128 *lowPassed;
     __m128 *permuted;
-    uint32_t downsample;
-    int argsProcessed;
 
 #ifndef DEBUG
+    static uint8_t previousR, previousJ;
     char *inPath, *outPath;
-    argsProcessed = 3;
+    int argsProcessed = 3;
 #else
-    argsProcessed = 1;
+    int argsProcessed = 1;
 #endif
 
     if (argc < argsProcessed) {
         return -1;
     } else {
         isCheckADCMax = 0;
-        isAdc = isRdc = 0;
+        /*isAdc = */isRdc = 0;
         isOffsetTuning = 0;
-        downsample = 1;
+        downsample = 0;
 
-#ifndef DEBUG
-        inPath = argv[1];
-        outPath = argv[2];
-        i = 3;
-#endif
-        for (; i < argc; ++i) {
-            switch (argv[i][0]){
+        while ((opt = getopt(argc, argv, "r:i:o:d:t")) != -1) {
+            switch (opt) {
                 case 'r':
-                    isRdc = 1;
-                    argsProcessed++;
+                    isRdc = atoi(optarg);
                     break;
-                case 'a':
-                    isAdc = 1;
-                    argsProcessed++;
+                case 't':
+                    isOffsetTuning = atoi(optarg);
+                    break;
+                case 'd':
+                    downsample = atoi(optarg);
+                    break;
+#ifndef DEBUG
+                case 'i':
+                    inPath = optarg;
                     break;
                 case 'o':
-                    isOffsetTuning = 1;
-                    argsProcessed++;
-                default:
-                    argsProcessed--;
+                    outPath = optarg;
                     break;
-            }
-        }
+#endif
+                default:
+                    break;
 
-        if (argsProcessed != argc) {
-            downsample = atoi(argv[argc - 1]);
+            }
         }
     }
 
