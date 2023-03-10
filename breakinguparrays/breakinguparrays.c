@@ -15,10 +15,10 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 #include <stdio.h>
+#include <stdint.h>
 #include <immintrin.h>
 #include <string.h>
 #include <math.h>
-#include <time.h>
 
 //#define DEBUG
 #ifdef DEBUG
