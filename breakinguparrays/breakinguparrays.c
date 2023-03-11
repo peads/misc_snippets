@@ -234,13 +234,13 @@ static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result
 
     uint64_t i, j;
 
-    *result = calloc(len, OUTPUT_ELEMENT_BYTES);
+    *result = calloc(len << 1, OUTPUT_ELEMENT_BYTES);
     for (i = 0, j = 0; i < len; ++i, j += 2) {
         (*result)[j] = argzB(_mm_mul_ps( buf[i], NEGATE_B_IM));
         (*result)[j+1] = argzB(_mm_mul_ps(_mm_blend_ps(buf[i], buf[i+1], 0b0011), NEGATE_B_IM));
     }
 
-    return i >> 1;
+    return j;
 }
 
 
@@ -283,7 +283,7 @@ static uint64_t processMatrix(const uint8_t *buf, const uint64_t len, __m128 **b
             ? (len >> LOG2_VECTOR_WIDTH) + 1UL
             : (len >> LOG2_VECTOR_WIDTH);
 
-    *buff = calloc(count << 2, MATRIX_ELEMENT_BYTES);
+    *buff = calloc(count << 2, MATRIX_ELEMENT_BYTES); // TODO count size necessary?
 
     depth = breakit(buf, len, *buff, squelch);
 
@@ -304,6 +304,7 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
     uint32_t result = fread(*buf, INPUT_ELEMENT_BYTES, MAXIMUM_BUF_SIZE, file);
 
     fclose(file);
+//    *buf = realloc(*buf, INPUT_ELEMENT_BYTES * result);
 
     return result;
 }
@@ -417,7 +418,7 @@ int main(int argc, char **argv) {
     printf("\n");
 #endif
 
-    depth = demodulateFmData(lowPassed, depth << 2, &result);
+    depth = demodulateFmData(lowPassed, depth, &result);
     free(lowPassed);
 
 #ifdef DEBUG

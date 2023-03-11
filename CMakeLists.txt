@@ -28,6 +28,7 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(rotate PUBLIC m)
     target_link_libraries(fabs PUBLIC m)
     target_link_libraries(atan2 PUBLIC m)
+    target_link_libraries(breakinguparrays PUBLIC m)
 endif()
 
 target_link_libraries(complex PUBLIC timed_functions)
