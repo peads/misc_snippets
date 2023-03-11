@@ -21,7 +21,7 @@
 #include <math.h>
 #include <unistd.h>
 
-#define DEBUG
+//#define DEBUG
 
 // sizeof(uint8_t)
 #define INPUT_ELEMENT_BYTES 1
@@ -99,19 +99,16 @@ __asm__(
     "comiss %xmm0, %xmm1\n\t"
     "jp zero\n\t"
     // push
-//    "sub $16, %rsp \n\t"
     "vextractps $1, %xmm0, -8(%rsp) \n\t"
     "flds -8(%rsp) \n\t"
     // push
-//    "sub $16, %rsp \n\t"
     "vextractps $2, %xmm0, -8(%rsp) \n\t"
     "flds -8(%rsp) \n\t"
     "fpatan \n\t"
     "fstps -8(%rsp) \n\t"
 
-    // B I G pop and return
+    // pop and return
     "vmovq -8(%rsp), %xmm0 \n\t"
-//    "add $32, %rsp \n\t"
     "jmp return\n\t"
 
 "zero: "
