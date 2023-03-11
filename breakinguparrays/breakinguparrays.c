@@ -304,7 +304,7 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
     uint32_t result = fread(*buf, INPUT_ELEMENT_BYTES, MAXIMUM_BUF_SIZE, file);
 
     fclose(file);
-//    *buf = realloc(*buf, INPUT_ELEMENT_BYTES * result);
+    *buf = realloc(*buf, INPUT_ELEMENT_BYTES * result);
 
     return result;
 }
