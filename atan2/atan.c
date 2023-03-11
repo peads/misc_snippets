@@ -25,10 +25,10 @@
     #define PRINTF //
 #endif
 
-#define MAX_ERROR 10e-7
-#define MIN -20
-#define MAX 20
-#define STEP 1
+#define MAX_ERROR 0.1
+#define MIN -2
+#define MAX 2
+#define STEP 0.1
 //#define DEBUG
 
 /**
@@ -131,22 +131,37 @@ __asm__(
 );
 
 int main(void) {
+    float i, j, k, m;
+//    __m128 z = {1.f, 2.f, 3.f, 4.f};
 
-    __m128 z = {1.f, 2.f, 3.f, 4.f};
-    __m128 w = {41.f, 41.f, 41.f, 41.f};
-    __m128i wint = _mm_castps_si128(w);
 
-    union vect temp = {.vect = z};
-    float zr = temp.arr[0]*temp.arr[2] - temp.arr[1]*temp.arr[3];
-    float zj = temp.arr[0]*temp.arr[3] + temp.arr[1]*temp.arr[2];
+    for (i = MIN; i < MAX; i += STEP) {
+        for (j = MIN; j < MAX; j += STEP) {
+            for (k = MIN; k < MAX; k += STEP) {
+                for (m = MIN; m < MAX; m += STEP) {
+                    __m128 z = {i, j, k, m};
+                    union vect temp = {.vect = z};
+                    float zr = temp.arr[0] * temp.arr[2] - temp.arr[1] * temp.arr[3];
+                    float zj = temp.arr[0] * temp.arr[3] + temp.arr[1] * temp.arr[2];
+                    float theta = atan2f(zj, zr);
+                    float phi = argz(z);
+                    float phiB = argzB(z);
+                    float avg = (theta + phiB) / 2.f;//(theta + phi + phiB) / 3.f;
+                    float stdDev = sqrtf((powf((theta - avg), 2.f) /*+ powf((phi - avg), 2.f)*/
+                                          + powf((phiB - avg), 2.f)) / 2.f);
 
-    printf("(%.01f + %.01fI).(%.01f + %.01fI) = (%.01f + %.01fI), Phase: %f\n",
-           temp.arr[0], temp.arr[1], temp.arr[2], temp.arr[3],
-           zr, zj, atan2f(zj, zr));
-
-    printf("Phase from argz: %f\n", argz(z));
-    printf("Phase from argzB: %f\n", argzB(z));
-    printf("%X\n", _MM_SHUFFLE(0,1,2,3));
+                    if (stdDev >= MAX_ERROR || (*(uint32_t*)&phiB & FLOAT_S_MASK) != (*(uint32_t*)&theta & FLOAT_S_MASK)) {
+                        printf("(%.01f + %.01fI).(%.01f + %.01fI) = (%.01f + %.01fI), Phase: %f\n",
+                               temp.arr[0], temp.arr[1], temp.arr[2], temp.arr[3],
+                               zr, zj, theta);
+                        printf("Phase from argz: %f\n", phi);
+                        printf("Phase from argzB: %f\n", phiB);
+                        printf("std. dev.: %f\n", stdDev);
+                    }
+                }
+            }
+        }
+    }
 
     return 0;
 }
