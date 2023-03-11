@@ -283,7 +283,7 @@ static uint64_t processMatrix(const uint8_t *buf, const uint64_t len, __m128 **b
             ? (len >> LOG2_VECTOR_WIDTH) + 1UL
             : (len >> LOG2_VECTOR_WIDTH);
 
-    *buff = calloc(count << 2, MATRIX_ELEMENT_BYTES); // TODO count size necessary?
+    *buff = calloc(count << 2, MATRIX_ELEMENT_BYTES);
 
     depth = breakit(buf, len, *buff, squelch);
 
@@ -348,7 +348,7 @@ int main(int argc, char **argv) {
                     downsample = atoi(optarg);
                     break;
                 case 's':   // TODO add parameter to take into account the impedence of the system
-                            // currently calculated for 50Ohms (i.e. Prms = ((I^2 + Q^2)/2)/50 = (I^2 + Q^2)/100)
+                            // currently calculated for 50 Ohms (i.e. Prms = ((I^2 + Q^2)/2)/50 = (I^2 + Q^2)/100)
                     squelch = malloc(MATRIX_ELEMENT_BYTES);
                     *squelch = _mm_set1_ps(powf(10.f, atof(optarg) / 10.f));
                     break;
