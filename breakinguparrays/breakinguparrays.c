@@ -283,7 +283,7 @@ static uint64_t processMatrix(const uint8_t *buf, const uint64_t len, __m128 **b
             ? (len >> LOG2_VECTOR_WIDTH) + 1UL
             : (len >> LOG2_VECTOR_WIDTH);
 
-    *buff = calloc(count << 2, MATRIX_ELEMENT_BYTES);
+    *buff = calloc(count, MATRIX_ELEMENT_BYTES);
 
     depth = breakit(buf, len, *buff, squelch);
 
