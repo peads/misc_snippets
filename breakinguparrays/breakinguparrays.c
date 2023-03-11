@@ -21,7 +21,7 @@
 #include <math.h>
 #include <unistd.h>
 
-#define DEBUG
+//#define DEBUG
 
 // sizeof(uint8_t)
 #define INPUT_ELEMENT_BYTES 1
@@ -232,11 +232,12 @@ static void rotateForNonOffsetTuning(__m128 *buf, const uint32_t len) {
 
 static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result) {
 
-    uint64_t i;
+    uint64_t i, j;
 
     *result = calloc(len, OUTPUT_ELEMENT_BYTES);
-    for (i = 0; i < len; ++i) {
-        (*result)[i] = argzB(_mm_mul_ps(buf[i], NEGATE_B_IM));
+    for (i = 0, j = 0; i < len; ++i, j += 2) {
+        (*result)[j] = argzB(_mm_mul_ps( buf[i], NEGATE_B_IM));
+        (*result)[j+1] = argzB(_mm_mul_ps(_mm_blend_ps(buf[i], buf[i+1], 0b0011), NEGATE_B_IM));
     }
 
     return i >> 1;
@@ -305,28 +306,6 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
     fclose(file);
 
     return result;
-}
-
-uint32_t permutePairsForDemod(__m128 *buf, uint64_t len) {
-
-    uint64_t i;
-    __m128 temp = buf[0];
-
-    for (i = 0; i < len; ++i) {
-        buf[i] = temp;
-        temp = buf[i+1];
-        buf[i+1] = _mm_blend_ps(buf[i], buf[i+1], 0b0011);
-#ifdef DEBUG
-        union m128_f v = {.v = buf[i]};
-        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
-               v.buf[0], v.buf[1], v.buf[2], v.buf[3]);
-
-        v.v = buf[i+1];
-        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
-               v.buf[0], v.buf[1], v.buf[2], v.buf[3]);
-#endif
-    }
-    return len << 2;
 }
 
 int main(int argc, char **argv) {
@@ -435,12 +414,10 @@ int main(int argc, char **argv) {
         printf("(%.02f + %.02fI),\t(%.02f + %.02fI)\n",
             temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
-    printf("\nPermuted pairs:\n");
+    printf("\n");
 #endif
 
-    depth = permutePairsForDemod(lowPassed, depth);
-
-    depth = demodulateFmData(lowPassed, depth, &result);
+    depth = demodulateFmData(lowPassed, depth << 2, &result);
     free(lowPassed);
 
 #ifdef DEBUG
