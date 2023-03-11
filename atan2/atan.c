@@ -121,7 +121,9 @@ __asm__(
     "movddup LC2(%rip), %xmm0\n\t"          // 41
     "vaddps %xmm3, %xmm0, %xmm3\n\t"        // 23*zr + 41
     "vpermilps $0x1B, %xmm3, %xmm3\n\t"
-    "vdivps %xmm3, %xmm2, %xmm0\n\t"        // 64*zj / ||z|| * (23*zr / ||z|| + 41)^-1
+//    "vdivps %xmm3, %xmm2, %xmm0\n\t"        // 64*zj / ||z|| * (23*zr / ||z|| + 41)^-1
+    "vrcpps %xmm3, %xmm3\n\t"
+    "vmulps %xmm3, %xmm2, %xmm0\n\t"
 
     "vextractps $1, %xmm0, %rax\n\t"
     "vmovq %rax, %xmm0 \n\t"
