@@ -73,16 +73,16 @@ static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 
 /**
- * Takes two packed int16_ts representing the complex numbers
- * (ar + iaj), (br + ibj), s.t. z = {ar, br, aj, bj}
+ * Takes two packed floats representing the complex numbers
+ * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
  * and returns their argument as a float
  **/
-extern float argzB(__m128 a);
+extern float argz(__m128 a);
 __asm__(
 #ifdef __clang__
-"_argzB: "
+"_argz: "
 #else
-"argzB: "
+"argz: "
 #endif
     "vpermilps $0xEB, %xmm0, %xmm1\n\t"     // (ar, aj, br, bj) => (aj, aj, ar, ar)
     "vpermilps $0x5, %xmm0, %xmm0\n\t"      // and                 (bj, br, br, bj)
@@ -233,8 +233,8 @@ static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result
 
     *result = calloc(len << 1, OUTPUT_ELEMENT_BYTES);
     for (i = 0, j = 0; i < len; ++i, j += 2) {
-        (*result)[j] = argzB(_mm_mul_ps( buf[i], NEGATE_B_IM));
-        (*result)[j+1] = argzB(_mm_mul_ps(_mm_blend_ps(buf[i], buf[i+1], 0b0011), NEGATE_B_IM));
+        (*result)[j] = argz(_mm_mul_ps( buf[i], NEGATE_B_IM));
+        (*result)[j+1] = argz(_mm_mul_ps(_mm_blend_ps(buf[i], buf[i+1], 0b0011), NEGATE_B_IM));
     }
 
     return j;

@@ -235,7 +235,7 @@ __asm__( // isNegZero
     "ret"
 );
 
-__asm__ (
+__asm__ ( // swap2
 #ifdef __APPLE_CC__
 "_swap2: "
 #else
@@ -275,7 +275,7 @@ __asm__( // absMaxMin
     "ret"
 );
 
-__asm__(
+__asm__( // asmInvSqrtB
 #ifdef __clang__
 "_asmInvSqrtB: "
 #else

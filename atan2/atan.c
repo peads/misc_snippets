@@ -31,144 +31,127 @@
 #define STEP 1
 //#define DEBUG
 
-extern float  ffabsf(float f );
-extern float  fsqrtf(float x );
-
 /**
- * takes four float representing the complex numbers (ar + iaj) * (br + ibj),
- * s.t. z = {ar, aj, br, bj}
+ * Takes two packed floats representing the complex numbers
+ * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
+ * and returns their argument as a float
  **/
-extern float argz2(float ar ,
-                    float aj ,
-                    float br ,
-                    float bj );
+extern float argz(__m128 a);
 __asm__(
 #ifdef __clang__
-"_argz2: "
+"_argz: "
 #else
-"argz2: "
+"argz: "
 #endif
-    "pushq %rbp\n\t"
-    "movq %rsp, %rbp\n\t"
-    "and $-16, %rsp\n\t"
+    "vpermilps $0xEB, %xmm0, %xmm1\n\t"     // (ar, aj, br, bj) => (aj, aj, ar, ar)
+    "vpermilps $0x5, %xmm0, %xmm0\n\t"      // and                 (bj, br, br, bj)
 
-//    "vshufps $0x0, %xmm1, %xmm0, %xmm0\n\t" // ar, ar, aj, aj
-//    "vshufps $0x0, %xmm3, %xmm2, %xmm1\n\t" // br, br, bj, bj
-//    "vpermilps $0x27, %xmm0, %xmm0\n\t"     // aj, ar, aj, ar -> xmm0
-//    "vpermilps $0x87, %xmm1, %xmm1\n\t"     // bj, br, br, bj -> xmm1
+    "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
+    "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br
+    "vaddsubps %xmm3, %xmm0, %xmm0\n\t"     //  ... [don't care], ar*bj + aj*br, ar*br - aj*bj, [don't care] ...
+    "vmulps %xmm0, %xmm0, %xmm1\n\t"        // ... , (ar*bj + aj*br)^2, (ar*br - aj*bj)^2, ...
+    "vpermilps $0x1B, %xmm1, %xmm2\n\t"
+    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // ..., (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
+    "vrsqrtps %xmm1, %xmm1\n\t"             // ..., Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+    "vmulps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
 
-//    "vshufps $17, %xmm2, %xmm3, %xmm1\n\t"
-//    "vpermilps $221, %xmm1, %xmm0\n\t"
-
-    "vshufps $0x11, %xmm0, %xmm1, %xmm0\n\t"
-    "vpermilps $0xDD, %xmm0, %xmm0\n\t"      // aj, aj, ar, ar -> xmm0
-
-    "vshufps $0, %xmm3, %xmm2, %xmm1\n\t"
-    "vpermilps $0x87, %xmm1, %xmm1\n\t"     // bj, br, br, bj -> xmm1
-
-    "vmulps %xmm0, %xmm1, %xmm0\n\t"        // aj*bj, ar*br, aj*br, ar*bj
-    "vpermilps $0xB1, %xmm0, %xmm3\n\t"
-    "vaddsubps %xmm0, %xmm3, %xmm0\n\t"     // ar*br - aj*bj, ... , ar*bj + aj*br
-    "vmulps %xmm0, %xmm0, %xmm1\n\t"        // (ar*br - aj*bj)^2, ... , (ar*bj + aj*br)^2
-    "vpermilps $0x1B, %xmm1, %xmm2\n\t"     // 0123 = 00011011 = 1B
-    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
-    "vsqrtps %xmm1, %xmm1\n\t"              // Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
-    "vdivps %xmm1, %xmm0, %xmm0\n\t"        // (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
-
+    "comiss %xmm0, %xmm1\n\t"
+    "jp zero\n\t"
     // push
-    "sub $16, %rsp \n\t"
-    "vextractps $0, %xmm0, (%rsp) \n\t"
-    "flds (%rsp) \n\t"
+    "vextractps $1, %xmm0, -8(%rsp) \n\t"
+    "flds -8(%rsp) \n\t"
     // push
-    "sub $16, %rsp \n\t"
-    "vextractps $3, %xmm0, (%rsp) \n\t"
-    "flds (%rsp) \n\t"
+    "vextractps $2, %xmm0, -8(%rsp) \n\t"
+    "flds -8(%rsp) \n\t"
     "fpatan \n\t"
-    "fstps (%rsp) \n\t"
+    "fstps -8(%rsp) \n\t"
 
-    // B I G pop and return
-    "vmovq (%rsp), %xmm0 \n\t"
-    "add $32, %rsp \n\t"
+    // pop and return
+    "vmovq -8(%rsp), %xmm0 \n\t"
+    "jmp bye\n\t"
+
+"zero: "
+    "vxorps %xmm0, %xmm0, %xmm0\n\t"
+"bye: "
     "ret"
+);
+/**
+ * Takes two packed floats representing the complex numbers
+ * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
+ * and returns their argument as a float
+ **/
+extern float argzB(__m128 a);
+__asm__(
 
+".section: .rodata:\n\t"
+".p2align 4\n\t"
+"LC0: "
+    ".quad 4791830004637892608\n\t"
+"LC1: "
+    ".quad 4735535009282654208\n\t"
+"LC2: "
+    ".quad 4765934306774482944\n\t"
+".text\n\t"
 
-//    "vextractps $0, %xmm0, %rcx\n\t"    // check zr == 0
-//    "cmp $0, %rcx\n\t"
-//    "vextractps $3, %xmm0, %rcx\n\t"    // check zj == 0
-//    "jnz homestretch\n\t"
-//
-//    "cmp $0, %rcx\n\t"
-//    "jz undefined\n\t"                  // return nan
-//    "jnz zero\n\t"                      // return 0
-//
-//"homestretch: "
-//    "movq $0x3F800000, %rdx\n\t"
-//    "movq $0xBF800000, %rbx\n\t"
-//    "shrq $31, %rcx\n\t"
-//    "cmp $1, %rcx\n\t"
-//    "cmove %rbx, %rdx\n\t"
+#ifdef __clang__
+"_argzB: "
+#else
+"argzB: "
+#endif
 
+    "vpermilps $0xEB, %xmm0, %xmm1\n\t"     // (ar, aj, br, bj) => (aj, aj, ar, ar)
+    "vpermilps $0x5, %xmm0, %xmm0\n\t"      // and                 (bj, br, br, bj)
 
+    "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
+    "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br
+    "vaddsubps %xmm3, %xmm0, %xmm0\n\t"     //  ... [don't care], ar*bj + aj*br, ar*br - aj*bj, [don't care] ...
+    "vmulps %xmm0, %xmm0, %xmm1\n\t"        // ... , (ar*bj + aj*br)^2, (ar*br - aj*bj)^2, ...
+    "vpermilps $0x1B, %xmm1, %xmm2\n\t"
+    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // ..., (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
+    "vrsqrtps %xmm1, %xmm1\n\t"             // ..., 1/Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+    "vmulps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
 
-//    "vmovq %rdx, %xmm2\n\t"
-//    "vbroadcastss %xmm2, %xmm2\n\t"
-//    "movq $0x3fc90fdb, %rcx\n\t"
-//    "vmovq %rcx, %xmm3\n\t"
-//    "vbroadcastss %xmm5, %xmm5\n\t"
-//    "vmulps %xmm1, %xmm1, %xmm0\n\t"
-//    "vmulps %xmm0, %xmm0, %xmm0\n\t"
-//    "vmulps %xmm0, %xmm0, %xmm0\n\t"
-//    "vmulps %xmm5, %xmm0, %xmm0\n\t"
-//    "vaddps %xmm1, %xmm0, %xmm0\n\t"
-//    "vsubps %xmm0, %xmm3, %xmm0\n\t"
-//    "vmulps %xmm2, %xmm0, %xmm0\n\t"
-//    "jmp return\n\t"
-//
-//"piovertwo: "
-//    "movq $0x3fc90fdb, %rcx\n\t"
-//    "vmovq %rcx, %xmm0\n\t"
-//    "jmp return\n\t"
-//
-//"zero: "
-//    "movq $0, %rcx\n\t"
-//    "vmovq %rcx, %xmm0\n\t"
-//    "jmp return\n\t"
-//
-//"undefined: "
-//    "pcmpeqd   %xmm0, %xmm0\n\t"
-//    "mulsd     %xmm0, %xmm0\n\t"
+                                            // approximating atan2 with atan(z)
+                                            //   = z/(1 + (9/32) z^2) for z = y/x
+    "movddup LC0(%rip), %xmm2\n\t"          // 64
+    "movddup LC1(%rip), %xmm3\n\t"          // 23
 
-"return: "
-    "movq  %rbp, %rsp\n\t"
-    "popq %rbp\n\t"
-    "ret\n\t"
+    "vmulps %xmm2, %xmm0, %xmm2\n\t"        // 64*zj
+//    "vmulps %xmm1, %xmm2, %xmm2\n\t"        // 64*zj / ||z||
+
+    "vmulps %xmm3, %xmm0, %xmm3\n\t"        // 23*zr
+//    "vmulps %xmm1, %xmm3, %xmm3\n\t"        // 23*zr / ||z||
+
+//    "vpcmpeqw %xmm0, %xmm0, %xmm0\n\t"
+//    "vpsllq $25, %xmm0, %xmm0\n\t"
+//    "vpsrld $2, %xmm0, %xmm0\n\t"           // load all 1.fs (https://www.agner.org/optimize/optimizing_assembly.pdf)         // 64
+    "movddup LC2(%rip), %xmm0\n\t"
+    "vaddps %xmm3, %xmm0, %xmm3\n\t"        // 23*zr + 1
+    "vpermilps $0x1B, %xmm3, %xmm3\n\t"
+    "vdivps %xmm3, %xmm2, %xmm0\n\t"
+
+    "vextractps $1, %xmm0, %rax\n\t"
+    "vmovq %rax, %xmm0 \n\t"
+    "ret \n\t"
 );
 
 int main(void) {
 
-    float ar, aj, br, bj;
-    float zr, zj, result, true;
+    __m128 z = {1.f, 2.f, 3.f, 4.f};
+    __m128 w = {41.f, 41.f, 41.f, 41.f};
+    __m128i wint = _mm_castps_si128(w);
 
-    for (ar = MIN; ar < MAX; ar += STEP) {              // ar
-        for (aj = MIN; aj < MAX; aj += STEP) {          // aj
-            for (br = MIN; br < MAX; br += STEP) {      // br
-                for (bj = MIN; bj < MAX; bj += STEP) {  // bj
+    union vect temp = {.vect = z};
+    float zr = temp.arr[0]*temp.arr[2] - temp.arr[1]*temp.arr[3];
+    float zj = temp.arr[0]*temp.arr[3] + temp.arr[1]*temp.arr[2];
 
-                    zr = ar * br - aj * bj;
-                    zj = ar * bj + aj * br;
+    printf("(%.01f + %.01fI).(%.01f + %.01fI) = (%.01f + %.01fI), Phase: %f\n",
+           temp.arr[0], temp.arr[1], temp.arr[2], temp.arr[3],
+           zr, zj, atan2f(zj, zr));
 
-                    result = argz2(ar, aj, br, bj);
-                    true = atan2f(zr, zj);
-                    
-                    printf("(%f + %fi) * (%f + %fi) => Arg[(%f + %fi)] = %f, %f\n", ar, aj, br, bj, zr, zj, true, result);
-
-                    if (!isnan(result)){
-                        assert(ffabsf(ffabsf(true) - ffabsf(result)) < MAX_ERROR);
-                    }
-                }
-            }
-        }
-    }
+    printf("Phase from argz: %f\n", argz(z));
+    printf("Phase from argzB: %f\n", argzB(z));
+    printf("%X\n", _MM_SHUFFLE(0,1,2,3));
 
     return 0;
 }
