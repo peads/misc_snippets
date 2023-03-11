@@ -133,10 +133,6 @@ __asm__( // ffabsf
     "ret"
 );
 
-//static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
-//    return a > b ? a : b;
-//}
-
 static inline __m128 mm256Epi8convertmmPs(__m256i data) {
     __m128i lo_lane = _mm256_castsi256_si128(data);
     return _mm_cvtepi32_ps(_mm_cvtepi16_epi32(_mm_cvtepi8_epi16(lo_lane)));
@@ -180,7 +176,7 @@ static struct rotationMatrix generateRotationMatrix(const float theta, const flo
 
 static uint32_t downSample(__m128 *buf, uint32_t len, const uint32_t downsample) {
 
-    int i,j;
+    uint64_t i,j;
 
     for (j = 0; j < downsample; ++j) {
         for (i = 0; i < len; ++i) {
@@ -214,12 +210,10 @@ static uint32_t downSample(__m128 *buf, uint32_t len, const uint32_t downsample)
 
 static void removeDCSpike(__m128 *buf, const uint32_t len) {
 
-    // Rolling average IIR filter
-
     static const __m128 ratio = {1e-05f,1e-05f,1e-05f,1e-05f};
     static __m128 dcAvgIq = {0,0,0,0};
 
-    int i;
+    uint64_t i;
 
     for (i = 0; i < len; ++i) {
         dcAvgIq = _mm_add_ps(dcAvgIq, _mm_mul_ps(ratio, _mm_sub_ps(buf[i], dcAvgIq)));
@@ -229,42 +223,32 @@ static void removeDCSpike(__m128 *buf, const uint32_t len) {
 
 static void rotateForNonOffsetTuning(__m128 *buf, const uint32_t len) {
 
-    int i;
+    uint64_t i;
 
     for(i = 0; i < len; ++i) {
         buf[i] = apply4x4_4x1Transform(CONJ_TRANSFORM, buf[i]);
     }
 }
 
-//static void findMaxSample(const __m256i *buf8, const uint32_t len) {
-//
-//    uint32_t i;
-//    __m256i sm;
-//
-//    for (i = 0; i < len; ++i) {
-//        sm = _mm256_max_epu8(sm, buf8[i]);
-//    }
-//    sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
-//}
-
 static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result) {
 
-    uint64_t i;
+    uint64_t i, j;
 
-    *result = calloc(len, OUTPUT_ELEMENT_BYTES);
-    for (i = 0; i < len; ++i) {
-        (*result)[i] = argzB(_mm_mul_ps(buf[i], NEGATE_B_IM));
+    *result = calloc(len << 1, OUTPUT_ELEMENT_BYTES);
+    for (i = 0, j = 0; i < len; ++i, j += 2) {
+        (*result)[j] = argzB(_mm_mul_ps( buf[i], NEGATE_B_IM));
+        (*result)[j+1] = argzB(_mm_mul_ps(_mm_blend_ps(buf[i], buf[i+1], 0b0011), NEGATE_B_IM));
     }
 
-    return i >> 1;
+    return j;
 }
 
 
-static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m128 *result, __m128 *squelch) {
+static uint32_t breakit(const uint8_t *buf, const uint64_t len, __m128 *result, __m128 *squelch) {
 
-    uint32_t j = 0;
-    uint32_t i;
-    int32_t leftToProcess = len;
+    uint64_t j = 0;
+    uint64_t i;
+    int64_t leftToProcess = len;
     __m128 rms, mask;
 
     union {
@@ -291,26 +275,17 @@ static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m128 *result, 
     return j;
 }
 
-static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **buff, __m128 *squelch) {
+static uint64_t processMatrix(const uint8_t *buf, const uint64_t len, __m128 **buff, __m128 *squelch) {
 
 
-    uint32_t /*i,*/ depth;
-    uint32_t count = (len & 3) != 0 // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0))
-            ? (len >> LOG2_VECTOR_WIDTH) + 1
+    uint64_t depth;
+    uint64_t count = (len & 3UL) != 0 // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0))
+            ? (len >> LOG2_VECTOR_WIDTH) + 1UL
             : (len >> LOG2_VECTOR_WIDTH);
 
-    *buff = calloc(count, MATRIX_ELEMENT_BYTES);
+    *buff = calloc(count << 2, MATRIX_ELEMENT_BYTES);
 
     depth = breakit(buf, len, *buff, squelch);
-
-//    if (isCheckADCMax) {
-//        for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
-//            samplePowSum += buf[i]*buf[i];
-//        }
-//        samplePowSum += samplePowSum / len;
-//
-////        findMaxSample(buf8, depth); // TODO fix this for nx4 float matrix
-//    }
 
     if (isRdc) {
         removeDCSpike(*buff, depth);
@@ -329,35 +304,14 @@ static inline uint32_t readFileData(char *path, uint8_t **buf) {
     uint32_t result = fread(*buf, INPUT_ELEMENT_BYTES, MAXIMUM_BUF_SIZE, file);
 
     fclose(file);
+    *buf = realloc(*buf, INPUT_ELEMENT_BYTES * result);
 
     return result;
 }
 
-uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
-
-    int i,j;
-
-    *result = calloc(len << 2, MATRIX_ELEMENT_BYTES);
-
-    for (i = 0, j = 0; i < len; ++i, j+=2) {
-        (*result)[j] = buf[i];
-        (*result)[j + 1] = _mm_blend_ps(buf[i], buf[i + 1], 0b0011);
-#ifdef DEBUG
-        union m128_f temp = {.v = (*result)[j]};
-        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
-               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
-
-        temp.v = (*result)[j + 1];
-        printf("(%.01f + %.01fI),\t(%.01f + %.01fI)\n",
-               temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
-#endif
-    }
-    return len << 2;
-}
-
 int main(int argc, char **argv) {
 
-    static uint32_t downsample;
+    static uint8_t downsample;
     static __m128 *squelch;
 
     int opt;
@@ -365,22 +319,20 @@ int main(int argc, char **argv) {
     uint64_t len;
     float *result;
     __m128 *lowPassed;
-    __m128 *permuted;
 
 #ifndef DEBUG
     static uint8_t previousR, previousJ;
     char *inPath, *outPath;
     int argsProcessed = 3;
 #else
-    int i;
+    uint64_t i;
     int argsProcessed = 1;
 #endif
 
     if (argc < argsProcessed) {
         return -1;
     } else {
-//        isCheckADCMax = 0;
-        /*isAdc = */isRdc = 0;
+        isRdc = 0;
         isOffsetTuning = 0;
         downsample = 0;
 
@@ -396,7 +348,7 @@ int main(int argc, char **argv) {
                     downsample = atoi(optarg);
                     break;
                 case 's':   // TODO add parameter to take into account the impedence of the system
-                            // currently calculated for 50Ohms (i.e. Prms = ((I^2 + Q^2)/2)/50 = (I^2 + Q^2)/100)
+                            // currently calculated for 50 Ohms (i.e. Prms = ((I^2 + Q^2)/2)/50 = (I^2 + Q^2)/100)
                     squelch = malloc(MATRIX_ELEMENT_BYTES);
                     *squelch = _mm_set1_ps(powf(10.f, atof(optarg) / 10.f));
                     break;
@@ -463,18 +415,12 @@ int main(int argc, char **argv) {
         printf("(%.02f + %.02fI),\t(%.02f + %.02fI)\n",
             temp.buf[0], temp.buf[1], temp.buf[2], temp.buf[3]);
     }
-    printf("\nPermuted pairs:\n");
+    printf("\n");
 #endif
 
-    depth = permutePairsForDemod(lowPassed, depth, &permuted);
+    depth = demodulateFmData(lowPassed, depth, &result);
     free(lowPassed);
 
-    depth = demodulateFmData(permuted, depth, &result);
-    free(permuted);
-
-//    if (isAdc) {
-//        filterDCAudio(result, depth);
-//    }
 #ifdef DEBUG
     printf("\nPhase angles:\n");
     for (i = 0; i < depth; ++i) {
