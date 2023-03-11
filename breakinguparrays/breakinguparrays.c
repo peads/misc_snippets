@@ -22,9 +22,7 @@
 #include <unistd.h>
 
 //#define DEBUG
-#ifdef DEBUG
-#include <assert.h>
-#endif
+
 // sizeof(uint8_t)
 #define INPUT_ELEMENT_BYTES 1
 // sizeof(float)
@@ -45,11 +43,13 @@ struct rotationMatrix {
     const union m128_f a2;
 };
 
+static const __m128 HUNDREDTH = {0.01f, 0.01f, 0.01f, 0.01f};
 static const __m128 NEGATE_B_IM = {1.f,1.f,1.f,-1.f};
 static const __m256i Z // all 127s
     = {0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f, 0x7f7f7f7f7f7f7f7f};
 static const __m128i FLOAT_ABS // all 0x7FFFFFFFUs
     = {9223372034707292159, 9223372034707292159};
+
 static const struct rotationMatrix PI_OVER_TWO_ROTATION = {
         {0,-1,0,-1},
         {1,0,1,0}
@@ -66,7 +66,7 @@ static const struct rotationMatrix CONJ_TRANSFORM = {
 };
 
 static uint8_t sampleMax = 0;
-static uint8_t isCheckADCMax;
+//static uint8_t isCheckADCMax;
 static uint8_t isRdc;
 //static uint8_t isAdc;
 static uint8_t isOffsetTuning;
@@ -133,11 +133,11 @@ __asm__( // ffabsf
     "ret"
 );
 
-static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
-    return a > b ? a : b;
-}
+//static inline uint8_t uCharMax(uint8_t a, uint8_t b) {
+//    return a > b ? a : b;
+//}
 
-static inline __m128 mm256Epi8convertPs(__m256i data) {
+static inline __m128 mm256Epi8convertmmPs(__m256i data) {
     __m128i lo_lane = _mm256_castsi256_si128(data);
     return _mm_cvtepi32_ps(_mm_cvtepi16_epi32(_mm_cvtepi8_epi16(lo_lane)));
 }
@@ -236,16 +236,16 @@ static void rotateForNonOffsetTuning(__m128 *buf, const uint32_t len) {
     }
 }
 
-static void findMaxSample(const __m256i *buf8, const uint32_t len) {
-
-    uint32_t i;
-    __m256i sm;
-
-    for (i = 0; i < len; ++i) {
-        sm = _mm256_max_epu8(sm, buf8[i]);
-    }
-    sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
-}
+//static void findMaxSample(const __m256i *buf8, const uint32_t len) {
+//
+//    uint32_t i;
+//    __m256i sm;
+//
+//    for (i = 0; i < len; ++i) {
+//        sm = _mm256_max_epu8(sm, buf8[i]);
+//    }
+//    sampleMax = uCharMax(sampleMax, uCharMax(sm[0], sm[1]));
+//}
 
 static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result) {
 
@@ -260,11 +260,12 @@ static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result
 }
 
 
-static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m128 *result) {
+static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m128 *result, __m128 *squelch) {
 
     uint32_t j = 0;
     uint32_t i;
     int32_t leftToProcess = len;
+    __m128 rms, mask;
 
     union {
         uint8_t buf[VECTOR_WIDTH];
@@ -274,33 +275,42 @@ static uint32_t breakit(const uint8_t *buf, const uint32_t len, __m128 *result) 
     for (i = 0; leftToProcess > 0; i += VECTOR_WIDTH) {
 
         memcpy(z.buf, buf + i, VECTOR_WIDTH);
-        result[j++] = mm256Epi8convertPs(_mm256_sub_epi8(z.v, Z));
+        result[j] = mm256Epi8convertmmPs(_mm256_sub_epi8(z.v, Z));
+
+        if (squelch) {
+            rms = _mm_mul_ps(result[j], result[j]);
+            rms = _mm_mul_ps(HUNDREDTH,
+                             _mm_add_ps(rms, _mm_permute_ps(rms, _MM_SHUFFLE(2, 3, 0, 1))));
+            mask = _mm_cmp_ps(rms, *squelch, _CMP_GE_OQ);
+            result[j] = _mm_and_ps(result[j], mask);
+        }
+        j++;
         leftToProcess -= VECTOR_WIDTH;
     }
 
     return j;
 }
 
-static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **buff) {
+static uint32_t processMatrix(const uint8_t *buf, const uint32_t len, __m128 **buff, __m128 *squelch) {
 
 
-    uint32_t i, depth;
+    uint32_t /*i,*/ depth;
     uint32_t count = (len & 3) != 0 // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0))
             ? (len >> LOG2_VECTOR_WIDTH) + 1
             : (len >> LOG2_VECTOR_WIDTH);
 
     *buff = calloc(count, MATRIX_ELEMENT_BYTES);
 
-    depth = breakit(buf, len, *buff);
+    depth = breakit(buf, len, *buff, squelch);
 
-    if (isCheckADCMax) {
-        for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
-            samplePowSum += buf[i]*buf[i];
-        }
-        samplePowSum += samplePowSum / len;
-
-//        findMaxSample(buf8, depth); // TODO fix this for nx4 float matrix
-    }
+//    if (isCheckADCMax) {
+//        for (i = 0; i < len; ++i) { // TODO implement this with data parallelism
+//            samplePowSum += buf[i]*buf[i];
+//        }
+//        samplePowSum += samplePowSum / len;
+//
+////        findMaxSample(buf8, depth); // TODO fix this for nx4 float matrix
+//    }
 
     if (isRdc) {
         removeDCSpike(*buff, depth);
@@ -347,11 +357,12 @@ uint32_t permutePairsForDemod(__m128 *buf, uint64_t len, __m128 **result) {
 
 int main(int argc, char **argv) {
 
-    int i;
+    static uint32_t downsample;
+    static __m128 *squelch;
+
     int opt;
     uint64_t depth;
     uint64_t len;
-    uint32_t downsample;
     float *result;
     __m128 *lowPassed;
     __m128 *permuted;
@@ -361,27 +372,33 @@ int main(int argc, char **argv) {
     char *inPath, *outPath;
     int argsProcessed = 3;
 #else
+    int i;
     int argsProcessed = 1;
 #endif
 
     if (argc < argsProcessed) {
         return -1;
     } else {
-        isCheckADCMax = 0;
+//        isCheckADCMax = 0;
         /*isAdc = */isRdc = 0;
         isOffsetTuning = 0;
         downsample = 0;
 
-        while ((opt = getopt(argc, argv, "r:i:o:d:t")) != -1) {
+        while ((opt = getopt(argc, argv, "r:i:o:d:f:s:")) != -1) {
             switch (opt) {
                 case 'r':
                     isRdc = atoi(optarg);
                     break;
-                case 't':
+                case 'f':
                     isOffsetTuning = atoi(optarg);
                     break;
                 case 'd':
                     downsample = atoi(optarg);
+                    break;
+                case 's':   // TODO add parameter to take into account the impedence of the system
+                            // currently calculated for 50Ohms (i.e. Prms = ((I^2 + Q^2)/2)/50 = (I^2 + Q^2)/100)
+                    squelch = malloc(MATRIX_ELEMENT_BYTES);
+                    *squelch = _mm_set1_ps(powf(10.f, atof(optarg) / 10.f));
                     break;
 #ifndef DEBUG
                 case 'i':
@@ -425,7 +442,7 @@ int main(int argc, char **argv) {
     free(inBuf);
 #endif
 
-    depth = processMatrix(buf, len, &lowPassed);
+    depth = processMatrix(buf, len, &lowPassed, squelch);
 
 #ifdef DEBUG
     printf("Processed matrix:\n");
