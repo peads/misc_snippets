@@ -117,18 +117,11 @@ __asm__(
     "movddup LC1(%rip), %xmm3\n\t"          // 23
 
     "vmulps %xmm2, %xmm0, %xmm2\n\t"        // 64*zj
-//    "vmulps %xmm1, %xmm2, %xmm2\n\t"        // 64*zj / ||z||
-
     "vmulps %xmm3, %xmm0, %xmm3\n\t"        // 23*zr
-//    "vmulps %xmm1, %xmm3, %xmm3\n\t"        // 23*zr / ||z||
-
-//    "vpcmpeqw %xmm0, %xmm0, %xmm0\n\t"
-//    "vpsllq $25, %xmm0, %xmm0\n\t"
-//    "vpsrld $2, %xmm0, %xmm0\n\t"           // load all 1.fs (https://www.agner.org/optimize/optimizing_assembly.pdf)         // 64
-    "movddup LC2(%rip), %xmm0\n\t"
-    "vaddps %xmm3, %xmm0, %xmm3\n\t"        // 23*zr + 1
+    "movddup LC2(%rip), %xmm0\n\t"          // 41
+    "vaddps %xmm3, %xmm0, %xmm3\n\t"        // 23*zr + 41
     "vpermilps $0x1B, %xmm3, %xmm3\n\t"
-    "vdivps %xmm3, %xmm2, %xmm0\n\t"
+    "vdivps %xmm3, %xmm2, %xmm0\n\t"        // 64*zj / ||z|| * (23*zr / ||z|| + 41)^-1
 
     "vextractps $1, %xmm0, %rax\n\t"
     "vmovq %rax, %xmm0 \n\t"
