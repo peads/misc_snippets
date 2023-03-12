@@ -15,21 +15,14 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define TIMING_RUNS 2
-#define DEBUG
+#define TIMING_RUNS 3
 #include "timed_functions.h"
 
-#ifdef DEBUG
-    #define PRINTF printf
-#else
-    #define PRINTF //
-#endif
-
-#define MAX_ERROR 0.1
-#define MIN -500
-#define MAX 500
-#define STEP 1
-//#define DEBUG
+#define DEBUG
+#define MAX_ERROR 0.1f
+#define MIN -1.f
+#define MAX 1.f
+#define STEP 0.01f
 
 /**
  * Takes packed float representing the complex numbers
@@ -58,16 +51,16 @@ __asm__(
     "comiss %xmm0, %xmm1\n\t"
     "jp zero\n\t"
     // push
-    "vextractps $1, %xmm0, -8(%rsp) \n\t"
-    "flds -8(%rsp) \n\t"
+    "vextractps $1, %xmm0, -4(%rsp) \n\t"
+    "flds -4(%rsp) \n\t"
     // push
-    "vextractps $2, %xmm0, -8(%rsp) \n\t"
-    "flds -8(%rsp) \n\t"
+    "vextractps $2, %xmm0, -4(%rsp) \n\t"
+    "flds -4(%rsp) \n\t"
     "fpatan \n\t"
-    "fstps -8(%rsp) \n\t"
+    "fstps -4(%rsp) \n\t"
 
     // pop and return
-    "vmovq -8(%rsp), %xmm0 \n\t"
+    "vmovq -4(%rsp), %xmm0 \n\t"
     "jmp bye\n\t"
 
 "zero: "
@@ -83,7 +76,7 @@ __asm__(
 extern float argzB(__m128 a);
 __asm__(
 
-".section: .rodata:\n\t"
+".section:\n\t"
 ".p2align 4\n\t"
 "LC0: "
     ".quad 4791830004637892608\n\t"
@@ -91,6 +84,8 @@ __asm__(
     ".quad 4735535009282654208\n\t"
 "LC2: "
     ".quad 4765934306774482944\n\t"
+//"LC3: "
+//    ".word $0x40490fdb\n\t"
 ".text\n\t"
 
 #ifdef __clang__
@@ -117,7 +112,9 @@ __asm__(
     "vcomiss %xmm2, %xmm3\n\t"
     "jg showtime\n\t"
     "jl pi\n\t"
-    "jmp zero\n\t"
+//    "jmp zero\n\t"
+    "vmovss %xmm3, %xmm3, %xmm0\n\t"
+    "ret\n\t"
 
 "showtime: "                                // approximating atan2 with atan(z)
                                             //   = z/(1 + (9/32) z^2) for z = y/x
@@ -145,79 +142,139 @@ __asm__(
     "ret \n\t"
 );
 
+void multiply(__m128 z, float *zr, float *zj) {
+    union vect temp = {.vect = z};
+    *zr = temp.arr[0] * temp.arr[2] - temp.arr[1] * temp.arr[3];
+    *zj = temp.arr[0] * temp.arr[3] + temp.arr[1] * temp.arr[2];
+}
+
+void printData(__m128 z, float zr, float zj, float theta, float phi, float omega) {
+    union vect vect = {.vect = z};
+    printf("(%.01f + %.01fI).(%.01f + %.01fI) = (%.01f + %.01fI)"
+           "\nPhase from atan2f: %f\nPhase from argz: %f\nPhase from argzB: %f\n",
+           vect.arr[0], vect.arr[1], vect.arr[2], vect.arr[3],
+           zr, zj, theta, phi, omega);
+}
+
+void baseCases() {
+    
+    int i;
+    float zr, zj, theta, phi, omega;
+    __m128 z;
+    __m128 Z[6] = {{1,2,3,4},{4,3,2,1},{-5,-10,1,0},{5,-10,1,0},{0,0,0,0},
+                   {FLT_EPSILON,FLT_EPSILON,FLT_EPSILON,FLT_EPSILON}};
+
+    for (i = 0; i < sizeof(Z)/sizeof(*Z); ++i) {
+        z = Z[i];
+        multiply(z, &zr, &zj);
+        theta = atan2f(zj, zr);
+        phi = argz(z);
+        omega = argzB(z);
+
+        printData(z, zr, zj, theta, phi, omega);
+    }
+
+}
+
 int main(void) {
-    float i, j, k, m, zr, zj, theta, phi, phiB, avg, stdDev;
+
+    char *runNames[TIMING_RUNS] = {"atan2f :: ", "argz :: ", "argzB :: "};
+    float ar = MIN;
+    float aj = MIN;
+    float br = MIN;
+    float bj = MIN;
     float sum = 0.f;
-    float N = powf((MAX - MIN) / STEP, 4.f);
-    uint32_t errCount = 0;
-    float errs[((uint32_t) N) << 1];
-    long double deltas[2], d = 0.l;
-    struct timespec tstart, tend;
-
-    for (i = MIN; i < MAX; i += STEP) {
-        for (j = MIN; j < MAX; j += STEP) {
-            for (k = MIN; k < MAX; k += STEP) {
-                for (m = MIN; m < MAX; m += STEP) {
-                    __m128 z = {i, j, k, m};
-                    union vect temp = {.vect = z};
-
-                    zr = temp.arr[0] * temp.arr[2] - temp.arr[1] * temp.arr[3];
-                    zj = temp.arr[0] * temp.arr[3] + temp.arr[1] * temp.arr[2];
-                    theta = atan2f(zj, zr);
-
-                    // START_TIMED
-                    clock_gettime(CLOCK_MONOTONIC, &tstart);
-
-                    phi = argz(z);
-
-                    clock_gettime(CLOCK_MONOTONIC, &tend);
-                    findDeltaTime(0, &tstart, &tend);
-                    // END TIMED
-
-                    // START_TIMED
-                    clock_gettime(CLOCK_MONOTONIC, &tstart);
-
-                    phiB = argzB(z);
-
-                    clock_gettime(CLOCK_MONOTONIC, &tend);
-                    findDeltaTime(1, &tstart, &tend);
-                    // END TIMED
-
-
-                    avg = (theta + phiB) / 2.f;//(theta + phi + phiB) / 3.f;
-                    stdDev = sqrtf((powf((theta - avg), 2.f) /*+ powf((phi - avg), 2.f)*/
-                                          + powf((phiB - avg), 2.f)) / 2.f);
-
-                    if (stdDev >= MAX_ERROR) {
-//                        printf("(%.01f + %.01fI).(%.01f + %.01fI) = (%.01f + %.01fI), Phase: %f\n",
-//                               temp.arr[0], temp.arr[1], temp.arr[2], temp.arr[3],
-//                               zr, zj, theta);
-//                        printf("Phase from argz: %f\n", phi);
-//                        printf("Phase from argzB: %f\n", phiB);
-//                        printf("std. dev.: %f\n", stdDev);
-
-                        sum += fabsf(theta) + fabsf(phiB);
-                        errs[errCount++] = theta;
-                        errs[errCount++] = phiB;
-                    }
-                }
-            }
-        }
-    }
-
-    int n = 0;
     float sd = 0.f;
-    float mu = sum/errCount;
-    for (; n < (errCount << 1); n+=2) {
-        sd += powf((theta - mu), 2.f) + powf((phiB - mu), 2.f);
+    float mu, zr, zj, theta, phi, omega, delta;
+    uint64_t i, n;
+    uint64_t N = ceil(pow((MAX - MIN)/STEP + 1, 4.));
+    uint64_t onePercent = (uint64_t)(.01f * N);
+    float *xs = calloc(N, sizeof(float));
+    struct timespec tstart, tend;
+    __m128 z;
+
+    baseCases();
+    printf("\n");
+
+    for (i = 0; ar <= MAX; ++i) {
+
+        union vect temp = {ar, aj, br, bj};
+        z = temp.vect;
+
+        // START_TIMED
+        clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+        multiply(z, &zr, &zj);
+        theta = atan2f(zj, zr);
+
+        clock_gettime(CLOCK_MONOTONIC, &tend);
+        findDeltaTime(0, &tstart, &tend);
+        // END TIMED
+        assert(!isnan(theta));
+
+        // START_TIMED
+        clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+        phi = argz(z);
+
+        clock_gettime(CLOCK_MONOTONIC, &tend);
+        findDeltaTime(1, &tstart, &tend);
+        // END TIMED
+        assert(!isnan(phi));
+
+        // START_TIMED
+        clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+        omega = argzB(z);
+
+        clock_gettime(CLOCK_MONOTONIC, &tend);
+        findDeltaTime(2, &tstart, &tend);
+        // END TIMED
+
+#ifdef DEBUG
+        if (isnan(omega)) {
+            printData(z, zr, zj, theta, phi, omega);
+        }
+#endif
+        assert(!isnan(omega));
+
+        delta = fabsf(theta) - fabsf(omega);
+        sum += delta;
+        xs[i] = delta;
+
+        bj+=STEP;
+        if (bj > MAX) {
+            bj = MIN;
+            br += STEP;
+        }
+        if (br > MAX) {
+            br = MIN;
+            aj += STEP;
+        }
+        if (aj > MAX) {
+            aj = MIN;
+            ar += STEP;
+        }
+#ifdef DEBUG
+        if (!(i % onePercent)) {
+            printf("%g%%\n", 100.f*i/N);
+        }
+#endif
     }
-    sd = sqrtf(sd / errCount);
+    printf("\n");
 
-    printf("%f %u %f %f\n", N, errCount, errCount / N, sd);
+    mu = sum/i;
+    for (n = 0; n < i; n+=2) {
+        sd += powf((xs[n] - mu), 2.f) + powf((xs[n + 1] - mu), 2.f);
+    }
+    sd = sqrtf(sd / i);
 
-    char *runNames[2]
-            = {"argz :: ", "argzB :: "};
+    free(xs);
+
+    printf("N: %llu mu: %f sd: %f\n\n", i, mu, sd);
 
     printTimedRuns(runNames, TIMING_RUNS);
+
+    assert(i == N);
     return 0;
 }
