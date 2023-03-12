@@ -116,18 +116,72 @@ __asm__(
 "return: "
     "ret"
 );
+/**
+ * Takes two packed floats representing the complex numbers
+ * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
+ * and returns their argument as a float
+ **/
+extern float argzB(__m128 a);
+__asm__(
+".section: .rodata:\n\t"
+".p2align 4\n\t"
+"LC0: "
+    ".quad 4791830004637892608\n\t"
+"LC1: "
+    ".quad 4735535009282654208\n\t"
+"LC2: "
+    ".quad 4765934306774482944\n\t"
+".text\n\t"
 
-extern float ffabsf(float x);
-__asm__( // ffabsf
 #ifdef __clang__
-"_ffabsf: "
+"_argzB: "
 #else
-"ffabsf: "
+"argzB: "
 #endif
-    "movq %xmm0, %rax\n\t"
-    "andl $0x7FFFFFFF, %eax\n\t"
-    "movq %rax, %xmm0\n\t"
-    "ret"
+    "vpermilps $0xEB, %xmm0, %xmm1\n\t"     // (ar, aj, br, bj) => (aj, aj, ar, ar)
+    "vpermilps $0x5, %xmm0, %xmm0\n\t"      // and                 (bj, br, br, bj)
+
+    "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
+    "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br
+    "vaddsubps %xmm3, %xmm0, %xmm0\n\t"     //  ... [don't care], ar*bj + aj*br, ar*br - aj*bj, [don't care] ...
+    "vmulps %xmm0, %xmm0, %xmm1\n\t"        // ... , (ar*bj + aj*br)^2, (ar*br - aj*bj)^2, ...
+    "vpermilps $0x1B, %xmm1, %xmm2\n\t"
+    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // ..., (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
+
+    "vxorps %xmm3, %xmm3, %xmm3\n\t"
+    "vpermilps $0x01, %xmm0, %xmm2\n\t"
+    "vcomiss %xmm2, %xmm3\n\t"
+    "jne showtime\n\t"
+    "vpermilps $0x02, %xmm0, %xmm2\n\t"
+    "vcomiss %xmm2, %xmm3\n\t"
+    "jg showtime\n\t"
+    "jl pi\n\t"
+    "jmp zero\n\t"
+
+"showtime: "                                // approximating atan2 with atan(z)
+                                            //   = z/(1 + (9/32) z^2) for z = y/x
+    "vrsqrtps %xmm1, %xmm1\n\t"             // ..., 1/Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+    "vmulps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
+    "movddup LC0(%rip), %xmm2\n\t"          // 64
+    "movddup LC1(%rip), %xmm3\n\t"          // 23
+
+    "vmulps %xmm2, %xmm0, %xmm2\n\t"        // 64*zj
+    "vmulps %xmm3, %xmm0, %xmm3\n\t"        // 23*zr
+    "movddup LC2(%rip), %xmm0\n\t"          // 41
+    "vaddps %xmm3, %xmm0, %xmm3\n\t"        // 23*zr + 41
+    "vpermilps $0x1B, %xmm3, %xmm3\n\t"
+    "vrcpps %xmm3, %xmm3\n\t"
+    "vmulps %xmm3, %xmm2, %xmm0\n\t"
+
+    "vpermilps $0x01, %xmm0, %xmm0\n\t"
+    "jmp done\n\t"
+
+"pi: "
+    "movl $0x40490fdb, %eax\n\t"
+    "vmovq %rax, %xmm0\n\t"
+
+"done: "
+    "ret \n\t"
 );
 
 static inline __m128 mm256Epi8convertmmPs(__m256i data) {
@@ -233,8 +287,8 @@ static uint64_t demodulateFmData(__m128 *buf, const uint32_t len, float **result
 
     *result = calloc(len << 1, OUTPUT_ELEMENT_BYTES);
     for (i = 0, j = 0; i < len; ++i, j += 2) {
-        (*result)[j] = argz(_mm_mul_ps( buf[i], NEGATE_B_IM));
-        (*result)[j+1] = argz(_mm_mul_ps(_mm_blend_ps(buf[i], buf[i+1], 0b0011), NEGATE_B_IM));
+        (*result)[j] = argzB(_mm_mul_ps( buf[i], NEGATE_B_IM));
+        (*result)[j+1] = argzB(_mm_mul_ps(_mm_blend_ps(buf[i], buf[i+1], 0b0011), NEGATE_B_IM));
     }
 
     return j;

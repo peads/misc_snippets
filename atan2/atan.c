@@ -32,7 +32,7 @@
 //#define DEBUG
 
 /**
- * Takes two packed floats representing the complex numbers
+ * Takes packed float representing the complex numbers
  * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
  * and returns their argument as a float
  **/
@@ -76,7 +76,7 @@ __asm__(
     "ret"
 );
 /**
- * Takes two packed floats representing the complex numbers
+ * Takes packed float representing the complex numbers
  * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
  * and returns their argument as a float
  **/
