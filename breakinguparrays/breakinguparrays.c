@@ -156,7 +156,9 @@ __asm__(
     "vcomiss %xmm2, %xmm3\n\t"
     "jg showtime\n\t"
     "jl pi\n\t"
-    "jmp zero\n\t"
+//    "jmp zero\n\t"
+    "vmovss %xmm3, %xmm3, %xmm0\n\t"
+    "ret\n\t"
 
 "showtime: "                                // approximating atan2 with atan(z)
                                             //   = z/(1 + (9/32) z^2) for z = y/x
