@@ -25,10 +25,10 @@
     #define PRINTF //
 #endif
 
-#define MAX_ERROR 0.01
-#define MIN -2
-#define MAX 2
-#define STEP 0.1
+#define MAX_ERROR 0.1
+#define MIN -500
+#define MAX 500
+#define STEP 1
 //#define DEBUG
 
 /**
@@ -108,11 +108,21 @@ __asm__(
     "vmulps %xmm0, %xmm0, %xmm1\n\t"        // ... , (ar*bj + aj*br)^2, (ar*br - aj*bj)^2, ...
     "vpermilps $0x1B, %xmm1, %xmm2\n\t"
     "vaddps %xmm2, %xmm1, %xmm1\n\t"        // ..., (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
+
+    "vxorps %xmm3, %xmm3, %xmm3\n\t"
+    "vpermilps $0x01, %xmm0, %xmm2\n\t"
+    "vcomiss %xmm2, %xmm3\n\t"
+    "jne showtime\n\t"
+    "vpermilps $0x02, %xmm0, %xmm2\n\t"
+    "vcomiss %xmm2, %xmm3\n\t"
+    "jg showtime\n\t"
+    "jl pi\n\t"
+    "jmp zero\n\t"
+
+"showtime: "                                // approximating atan2 with atan(z)
+                                            //   = z/(1 + (9/32) z^2) for z = y/x
     "vrsqrtps %xmm1, %xmm1\n\t"             // ..., 1/Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
-
-                                            // approximating atan2 with atan(z)
-                                            //   = z/(1 + (9/32) z^2) for z = y/x
     "movddup LC0(%rip), %xmm2\n\t"          // 64
     "movddup LC1(%rip), %xmm3\n\t"          // 23
 
@@ -125,8 +135,13 @@ __asm__(
     "vrcpps %xmm3, %xmm3\n\t"
     "vmulps %xmm3, %xmm2, %xmm0\n\t"
 
-    "vextractps $1, %xmm0, %rax\n\t"
-    "vmovq %rax, %xmm0 \n\t"
+    "vpermilps $0x01, %xmm0, %xmm0\n\t"
+    "jmp done\n\t"
+
+"pi: "
+    "movl $0x40490fdb, %eax\n\t"
+    "vmovq %rax, %xmm0\n\t"
+"done: "
     "ret \n\t"
 );
 
@@ -136,6 +151,8 @@ int main(void) {
     float N = powf((MAX - MIN) / STEP, 4.f);
     uint32_t errCount = 0;
     float errs[((uint32_t) N) << 1];
+    long double deltas[2], d = 0.l;
+    struct timespec tstart, tend;
 
     for (i = MIN; i < MAX; i += STEP) {
         for (j = MIN; j < MAX; j += STEP) {
@@ -147,19 +164,37 @@ int main(void) {
                     zr = temp.arr[0] * temp.arr[2] - temp.arr[1] * temp.arr[3];
                     zj = temp.arr[0] * temp.arr[3] + temp.arr[1] * temp.arr[2];
                     theta = atan2f(zj, zr);
+
+                    // START_TIMED
+                    clock_gettime(CLOCK_MONOTONIC, &tstart);
+
                     phi = argz(z);
+
+                    clock_gettime(CLOCK_MONOTONIC, &tend);
+                    findDeltaTime(0, &tstart, &tend);
+                    // END TIMED
+
+                    // START_TIMED
+                    clock_gettime(CLOCK_MONOTONIC, &tstart);
+
                     phiB = argzB(z);
+
+                    clock_gettime(CLOCK_MONOTONIC, &tend);
+                    findDeltaTime(1, &tstart, &tend);
+                    // END TIMED
+
+
                     avg = (theta + phiB) / 2.f;//(theta + phi + phiB) / 3.f;
                     stdDev = sqrtf((powf((theta - avg), 2.f) /*+ powf((phi - avg), 2.f)*/
                                           + powf((phiB - avg), 2.f)) / 2.f);
 
-                    if (isnan(phiB) || stdDev >= 1.f/*MAX_ERROR*/) {
-                        printf("(%.01f + %.01fI).(%.01f + %.01fI) = (%.01f + %.01fI), Phase: %f\n",
-                               temp.arr[0], temp.arr[1], temp.arr[2], temp.arr[3],
-                               zr, zj, theta);
-                        printf("Phase from argz: %f\n", phi);
-                        printf("Phase from argzB: %f\n", phiB);
-                        printf("std. dev.: %f\n", stdDev);
+                    if (stdDev >= MAX_ERROR) {
+//                        printf("(%.01f + %.01fI).(%.01f + %.01fI) = (%.01f + %.01fI), Phase: %f\n",
+//                               temp.arr[0], temp.arr[1], temp.arr[2], temp.arr[3],
+//                               zr, zj, theta);
+//                        printf("Phase from argz: %f\n", phi);
+//                        printf("Phase from argzB: %f\n", phiB);
+//                        printf("std. dev.: %f\n", stdDev);
 
                         sum += fabsf(theta) + fabsf(phiB);
                         errs[errCount++] = theta;
@@ -169,6 +204,7 @@ int main(void) {
             }
         }
     }
+
     int n = 0;
     float sd = 0.f;
     float mu = sum/errCount;
@@ -178,5 +214,10 @@ int main(void) {
     sd = sqrtf(sd / errCount);
 
     printf("%f %u %f %f\n", N, errCount, errCount / N, sd);
+
+    char *runNames[2]
+            = {"argz :: ", "argzB :: "};
+
+    printTimedRuns(runNames, TIMING_RUNS);
     return 0;
 }
