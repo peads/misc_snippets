@@ -25,7 +25,7 @@
     #define PRINTF //
 #endif
 
-#define MAX_ERROR 0.1
+#define MAX_ERROR 0.01
 #define MIN -2
 #define MAX 2
 #define STEP 0.1
@@ -131,9 +131,11 @@ __asm__(
 );
 
 int main(void) {
-    float i, j, k, m;
-//    __m128 z = {1.f, 2.f, 3.f, 4.f};
-
+    float i, j, k, m, zr, zj, theta, phi, phiB, avg, stdDev;
+    float sum = 0.f;
+    float N = powf((MAX - MIN) / STEP, 4.f);
+    uint32_t errCount = 0;
+    float errs[((uint32_t) N) << 1];
 
     for (i = MIN; i < MAX; i += STEP) {
         for (j = MIN; j < MAX; j += STEP) {
@@ -141,27 +143,40 @@ int main(void) {
                 for (m = MIN; m < MAX; m += STEP) {
                     __m128 z = {i, j, k, m};
                     union vect temp = {.vect = z};
-                    float zr = temp.arr[0] * temp.arr[2] - temp.arr[1] * temp.arr[3];
-                    float zj = temp.arr[0] * temp.arr[3] + temp.arr[1] * temp.arr[2];
-                    float theta = atan2f(zj, zr);
-                    float phi = argz(z);
-                    float phiB = argzB(z);
-                    float avg = (theta + phiB) / 2.f;//(theta + phi + phiB) / 3.f;
-                    float stdDev = sqrtf((powf((theta - avg), 2.f) /*+ powf((phi - avg), 2.f)*/
+
+                    zr = temp.arr[0] * temp.arr[2] - temp.arr[1] * temp.arr[3];
+                    zj = temp.arr[0] * temp.arr[3] + temp.arr[1] * temp.arr[2];
+                    theta = atan2f(zj, zr);
+                    phi = argz(z);
+                    phiB = argzB(z);
+                    avg = (theta + phiB) / 2.f;//(theta + phi + phiB) / 3.f;
+                    stdDev = sqrtf((powf((theta - avg), 2.f) /*+ powf((phi - avg), 2.f)*/
                                           + powf((phiB - avg), 2.f)) / 2.f);
 
-                    if (stdDev >= MAX_ERROR || (*(uint32_t*)&phiB & FLOAT_S_MASK) != (*(uint32_t*)&theta & FLOAT_S_MASK)) {
+                    if (isnan(phiB) || stdDev >= 1.f/*MAX_ERROR*/) {
                         printf("(%.01f + %.01fI).(%.01f + %.01fI) = (%.01f + %.01fI), Phase: %f\n",
                                temp.arr[0], temp.arr[1], temp.arr[2], temp.arr[3],
                                zr, zj, theta);
                         printf("Phase from argz: %f\n", phi);
                         printf("Phase from argzB: %f\n", phiB);
                         printf("std. dev.: %f\n", stdDev);
+
+                        sum += fabsf(theta) + fabsf(phiB);
+                        errs[errCount++] = theta;
+                        errs[errCount++] = phiB;
                     }
                 }
             }
         }
     }
+    int n = 0;
+    float sd = 0.f;
+    float mu = sum/errCount;
+    for (; n < (errCount << 1); n+=2) {
+        sd += powf((theta - mu), 2.f) + powf((phiB - mu), 2.f);
+    }
+    sd = sqrtf(sd / errCount);
 
+    printf("%f %u %f %f\n", N, errCount, errCount / N, sd);
     return 0;
 }
