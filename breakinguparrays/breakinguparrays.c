@@ -73,11 +73,6 @@ static uint8_t isOffsetTuning;
 static uint32_t samplePowSum = 0;
 
 /**
- * Takes two packed floats representing the complex numbers
- * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
- * and returns their argument as a float
- **/
-/**
  * Takes packed float representing the complex numbers
  * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
  * and returns their argument as a float
@@ -115,18 +110,16 @@ __asm__(
     "vxorps %xmm3, %xmm3, %xmm3\n\t"
     "vpermilps $0x01, %xmm0, %xmm2\n\t"
     "vcomiss %xmm2, %xmm3\n\t"
-    "jne showtime\n\t"
+    "jnz showtime\n\t"
     "vpermilps $0x02, %xmm0, %xmm2\n\t"
-    "vcomiss %xmm2, %xmm3\n\t"
-    "jg showtime\n\t"
-    "jl pi\n\t"
-    "vmovss %xmm3, %xmm3, %xmm0\n\t"
-    //    "vmovq %xmm3, %xmm0\n\t"
-    //    "vxorps %xmm0, %xmm0, %xmm0\n\t"
-    "ret\n\t"
+    "vcomiss %xmm3, %xmm2\n\t"
+    "jz zero\n\t"
+    "ja showtime\n\t"
+    "vmovq LC3(%rip), %xmm0\n\t"
+    "ret \n\t"
 
 "showtime: "                                // approximating atan2 with atan(z)
-    //   = z/(1 + (9/32) z^2) for z = y/x
+                                            //   = z/(1 + (9/32) z^2) for z = y/x
     "vrsqrtps %xmm1, %xmm1\n\t"             // ..., 1/Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "movddup LC0(%rip), %xmm2\n\t"          // 64
@@ -143,11 +136,9 @@ __asm__(
     "vpermilps $0x01, %xmm0, %xmm0\n\t"
     "ret\n\t"
 
-"pi: "
-    //    "movl $0x40490fdb, %eax\n\t"
-    //    "vmovq %rax, %xmm0\n\t"
-    "vmovq LC3(%rip), %xmm0\n\t"
-    "ret \n\t"
+"zero: "
+    "vxorps %xmm0, %xmm0, %xmm0\n\t"
+    "ret\n\t"
 );
 
 static inline __m128 mm256Epi8convertmmPs(__m256i data) {

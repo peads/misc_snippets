@@ -20,8 +20,8 @@
 
 //#define DEBUG
 #define MAX_ERROR 0.1f
-#define MIN -2.5f
-#define MAX 2.5f
+#define MIN -1.f
+#define MAX 1.f
 #define STEP 0.1f
 
 /**
@@ -74,6 +74,7 @@ __asm__(
     "vxorps %xmm0, %xmm0, %xmm0\n\t"
     "ret"
 );
+
 /**
  * Takes packed float representing the complex numbers
  * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
@@ -113,15 +114,13 @@ __asm__(
     "vxorps %xmm3, %xmm3, %xmm3\n\t"
     "vpermilps $0x01, %xmm0, %xmm2\n\t"
     "vcomiss %xmm2, %xmm3\n\t"
-    "jne showtime\n\t"
+    "jnz showtime\n\t"
     "vpermilps $0x02, %xmm0, %xmm2\n\t"
-    "vcomiss %xmm2, %xmm3\n\t"
-    "jg showtime\n\t"
-    "jl pi\n\t"
-    "vmovss %xmm3, %xmm3, %xmm0\n\t"
-//    "vmovq %xmm3, %xmm0\n\t"
-//    "vxorps %xmm0, %xmm0, %xmm0\n\t"
-    "ret\n\t"
+    "vcomiss %xmm3, %xmm2\n\t"
+    "jz zero\n\t"
+    "ja showtime\n\t"
+    "vmovq LC3(%rip), %xmm0\n\t"
+    "ret \n\t"
 
 "showtime: "                                // approximating atan2 with atan(z)
                                             //   = z/(1 + (9/32) z^2) for z = y/x
@@ -141,11 +140,9 @@ __asm__(
     "vpermilps $0x01, %xmm0, %xmm0\n\t"
     "ret\n\t"
 
-"pi: "
-//    "movl $0x40490fdb, %eax\n\t"
-//    "vmovq %rax, %xmm0\n\t"
-    "vmovq LC3(%rip), %xmm0\n\t"
-    "ret \n\t"
+"zed: "
+    "vxorps %xmm0,%xmm0,%xmm0\n\t"
+    "ret\n\t"
 );
 
 void multiply(__m128 z, float *zr, float *zj) {
