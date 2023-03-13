@@ -22,7 +22,7 @@
 #define MAX_ERROR 0.1f
 #define MIN -1.f
 #define MAX 1.f
-#define STEP 0.01f
+#define STEP 0.1f
 
 /**
  * Takes packed float representing the complex numbers
@@ -180,9 +180,15 @@ static void baseCases() {
 
         printData(z, zr, zj, theta, phi, omega);
     }
-
+    printf("\n");
 }
 
+static inline float /*__attribute__((noinline))*/ arg(__m128 z) {
+
+    float zr, zj;
+    multiply(z, &zr, &zj);
+    return atan2f(zj, zr);
+}
 int main(void) {
 
     char *runNames[TIMING_RUNS] = {"atan2f :: ", "argz :: ", "argzB :: "};
@@ -192,7 +198,7 @@ int main(void) {
     float bj = MIN;
     float sum = 0.f;
     float sd = 0.f;
-    float mu, zr, zj, theta, phi, omega, delta;
+    float mu, theta, phi, omega, delta;
     uint64_t i, n;
     uint64_t N = ceil(pow((MAX - MIN)/STEP + 1, 4.));
     uint64_t onePercent = (uint64_t)(.01f * N);
@@ -201,7 +207,6 @@ int main(void) {
     __m128 z;
 
     baseCases();
-    printf("\n");
 
     for (i = 0; ar <= MAX; ++i) {
 
@@ -211,8 +216,9 @@ int main(void) {
         // START_TIMED
         clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-        multiply(z, &zr, &zj);
-        theta = atan2f(zj, zr);
+//        multiply(z, &zr, &zj);
+//        theta = atan2f(zj, zr);
+        theta = arg(z);
 
         clock_gettime(CLOCK_MONOTONIC, &tend);
         findDeltaTime(0, &tstart, &tend);
