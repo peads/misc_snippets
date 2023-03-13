@@ -18,11 +18,11 @@
 #define TIMING_RUNS 3
 #include "timed_functions.h"
 
-#define DEBUG
+//#define DEBUG
 #define MAX_ERROR 0.1f
-#define MIN -1.f
-#define MAX 1.f
-#define STEP 0.01f
+#define MIN -2.5f
+#define MAX 2.5f
+#define STEP 0.1f
 
 /**
  * Takes packed float representing the complex numbers
@@ -50,22 +50,28 @@ __asm__(
 
     "comiss %xmm0, %xmm1\n\t"
     "jp zero\n\t"
+
     // push
-    "vextractps $1, %xmm0, -4(%rsp) \n\t"
-    "flds -4(%rsp) \n\t"
+//    "vextractps $1, %xmm0, -8(%rsp) \n\t"
+    "vpermilps $0x01, %xmm0, %xmm2\n\t"
+    "vmovq %xmm2, -8(%rsp)\n\t"
+    "flds -8(%rsp) \n\t"
+
     // push
-    "vextractps $2, %xmm0, -4(%rsp) \n\t"
-    "flds -4(%rsp) \n\t"
+//    "vextractps $2, %xmm0, -8(%rsp) \n\t"
+    "vpermilps $0x02, %xmm0, %xmm2\n\t"
+    "vmovq %xmm2, -8(%rsp)\n\t"
+    "flds -8(%rsp) \n\t"
+
     "fpatan \n\t"
-    "fstps -4(%rsp) \n\t"
 
     // pop and return
-    "vmovq -4(%rsp), %xmm0 \n\t"
-    "jmp bye\n\t"
+    "fstps -8(%rsp) \n\t"
+    "vmovq -8(%rsp), %xmm0 \n\t"
+    "ret\n\t"
 
 "zero: "
     "vxorps %xmm0, %xmm0, %xmm0\n\t"
-"bye: "
     "ret"
 );
 /**
@@ -84,8 +90,8 @@ __asm__(
     ".quad 4735535009282654208\n\t"
 "LC2: "
     ".quad 4765934306774482944\n\t"
-//"LC3: "
-//    ".word $0x40490fdb\n\t"
+"LC3: "
+    ".quad 0x40490fdb\n\t"
 ".text\n\t"
 
 #ifdef __clang__
@@ -112,8 +118,9 @@ __asm__(
     "vcomiss %xmm2, %xmm3\n\t"
     "jg showtime\n\t"
     "jl pi\n\t"
-//    "jmp zero\n\t"
     "vmovss %xmm3, %xmm3, %xmm0\n\t"
+//    "vmovq %xmm3, %xmm0\n\t"
+//    "vxorps %xmm0, %xmm0, %xmm0\n\t"
     "ret\n\t"
 
 "showtime: "                                // approximating atan2 with atan(z)
@@ -128,17 +135,16 @@ __asm__(
     "movddup LC2(%rip), %xmm0\n\t"          // 41
     "vaddps %xmm3, %xmm0, %xmm3\n\t"        // 23*zr + 41
     "vpermilps $0x1B, %xmm3, %xmm3\n\t"
-//    "vdivps %xmm3, %xmm2, %xmm0\n\t"        // 64*zj / ||z|| * (23*zr / ||z|| + 41)^-1
     "vrcpps %xmm3, %xmm3\n\t"
     "vmulps %xmm3, %xmm2, %xmm0\n\t"
 
     "vpermilps $0x01, %xmm0, %xmm0\n\t"
-    "jmp done\n\t"
+    "ret\n\t"
 
 "pi: "
-    "movl $0x40490fdb, %eax\n\t"
-    "vmovq %rax, %xmm0\n\t"
-"done: "
+//    "movl $0x40490fdb, %eax\n\t"
+//    "vmovq %rax, %xmm0\n\t"
+    "vmovq LC3(%rip), %xmm0\n\t"
     "ret \n\t"
 );
 
@@ -150,7 +156,7 @@ void multiply(__m128 z, float *zr, float *zj) {
 
 void printData(__m128 z, float zr, float zj, float theta, float phi, float omega) {
     union vect vect = {.vect = z};
-    printf("(%.01f + %.01fI).(%.01f + %.01fI) = (%.01f + %.01fI)"
+    printf("(%g + %gI).(%g + %gI) = (%g + %gI)"
            "\nPhase from atan2f: %f\nPhase from argz: %f\nPhase from argzB: %f\n",
            vect.arr[0], vect.arr[1], vect.arr[2], vect.arr[3],
            zr, zj, theta, phi, omega);
@@ -161,8 +167,8 @@ void baseCases() {
     int i;
     float zr, zj, theta, phi, omega;
     __m128 z;
-    __m128 Z[6] = {{1,2,3,4},{4,3,2,1},{-5,-10,1,0},{5,-10,1,0},{0,0,0,0},
-                   {FLT_EPSILON,FLT_EPSILON,FLT_EPSILON,FLT_EPSILON}};
+    __m128 Z[7] = {{1,2,3,4},{4,3,2,1},{-5,-10,1,0},{5,-10,1,0},{0,0,0,0},
+                   {FLT_EPSILON,FLT_EPSILON,FLT_EPSILON,FLT_EPSILON}, {-1,1,1,1}};
 
     for (i = 0; i < sizeof(Z)/sizeof(*Z); ++i) {
         z = Z[i];
@@ -275,6 +281,5 @@ int main(void) {
 
     printTimedRuns(runNames, TIMING_RUNS);
 
-    assert(i == N);
     return 0;
 }

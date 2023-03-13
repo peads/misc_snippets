@@ -77,60 +77,24 @@ static uint32_t samplePowSum = 0;
  * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
  * and returns their argument as a float
  **/
-extern float argz(__m128 a);
-__asm__(
-#ifdef __clang__
-"_argz: "
-#else
-"argz: "
-#endif
-    "vpermilps $0xEB, %xmm0, %xmm1\n\t"     // (ar, aj, br, bj) => (aj, aj, ar, ar)
-    "vpermilps $0x5, %xmm0, %xmm0\n\t"      // and                 (bj, br, br, bj)
-
-    "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
-    "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br
-    "vaddsubps %xmm3, %xmm0, %xmm0\n\t"     //  ... [don't care], ar*bj + aj*br, ar*br - aj*bj, [don't care] ...
-    "vmulps %xmm0, %xmm0, %xmm1\n\t"        // ... , (ar*bj + aj*br)^2, (ar*br - aj*bj)^2, ...
-    "vpermilps $0x1B, %xmm1, %xmm2\n\t"
-    "vaddps %xmm2, %xmm1, %xmm1\n\t"        // ..., (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
-    "vrsqrtps %xmm1, %xmm1\n\t"              // ..., Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
-    "vmulps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
-
-    "comiss %xmm0, %xmm1\n\t"
-    "jp zero\n\t"
-    // push
-    "vextractps $1, %xmm0, -8(%rsp) \n\t"
-    "flds -8(%rsp) \n\t"
-    // push
-    "vextractps $2, %xmm0, -8(%rsp) \n\t"
-    "flds -8(%rsp) \n\t"
-    "fpatan \n\t"
-    "fstps -8(%rsp) \n\t"
-
-    // pop and return
-    "vmovq -8(%rsp), %xmm0 \n\t"
-    "jmp return\n\t"
-
-"zero: "
-    "vxorps %xmm0, %xmm0, %xmm0\n\t"
-"return: "
-    "ret"
-);
 /**
- * Takes two packed floats representing the complex numbers
+ * Takes packed float representing the complex numbers
  * (ar + iaj), (br + ibj), s.t. z = {ar, aj, br, bj}
  * and returns their argument as a float
  **/
 extern float argzB(__m128 a);
 __asm__(
-".section: .rodata:\n\t"
-".p2align 4\n\t"
+
+".section:\n\t"
+    ".p2align 4\n\t"
 "LC0: "
     ".quad 4791830004637892608\n\t"
 "LC1: "
     ".quad 4735535009282654208\n\t"
 "LC2: "
     ".quad 4765934306774482944\n\t"
+"LC3: "
+    ".quad 0x40490fdb\n\t"
 ".text\n\t"
 
 #ifdef __clang__
@@ -156,12 +120,13 @@ __asm__(
     "vcomiss %xmm2, %xmm3\n\t"
     "jg showtime\n\t"
     "jl pi\n\t"
-//    "jmp zero\n\t"
     "vmovss %xmm3, %xmm3, %xmm0\n\t"
+    //    "vmovq %xmm3, %xmm0\n\t"
+    //    "vxorps %xmm0, %xmm0, %xmm0\n\t"
     "ret\n\t"
 
 "showtime: "                                // approximating atan2 with atan(z)
-                                            //   = z/(1 + (9/32) z^2) for z = y/x
+    //   = z/(1 + (9/32) z^2) for z = y/x
     "vrsqrtps %xmm1, %xmm1\n\t"             // ..., 1/Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "movddup LC0(%rip), %xmm2\n\t"          // 64
@@ -176,13 +141,12 @@ __asm__(
     "vmulps %xmm3, %xmm2, %xmm0\n\t"
 
     "vpermilps $0x01, %xmm0, %xmm0\n\t"
-    "jmp done\n\t"
+    "ret\n\t"
 
 "pi: "
-    "movl $0x40490fdb, %eax\n\t"
-    "vmovq %rax, %xmm0\n\t"
-
-"done: "
+    //    "movl $0x40490fdb, %eax\n\t"
+    //    "vmovq %rax, %xmm0\n\t"
+    "vmovq LC3(%rip), %xmm0\n\t"
     "ret \n\t"
 );
 
@@ -332,7 +296,7 @@ static uint64_t processMatrix(const uint8_t *buf, const uint64_t len, __m128 **b
 
 
     uint64_t depth;
-    uint64_t count = (len & 3UL) != 0 // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0))
+    uint64_t count = len & 3UL // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0))
             ? (len >> LOG2_VECTOR_WIDTH) + 1UL
             : (len >> LOG2_VECTOR_WIDTH);
 
