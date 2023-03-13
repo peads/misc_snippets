@@ -22,7 +22,7 @@
 #define MAX_ERROR 0.1f
 #define MIN -1.f
 #define MAX 1.f
-#define STEP 0.1f
+#define STEP 0.001f
 
 /**
  * Takes packed float representing the complex numbers
@@ -145,13 +145,13 @@ __asm__(
     "ret\n\t"
 );
 
-void multiply(__m128 z, float *zr, float *zj) {
+static inline void multiply(__m128 z, float *zr, float *zj) {
     union vect temp = {.vect = z};
     *zr = temp.arr[0] * temp.arr[2] - temp.arr[1] * temp.arr[3];
     *zj = temp.arr[0] * temp.arr[3] + temp.arr[1] * temp.arr[2];
 }
 
-void printData(__m128 z, float zr, float zj, float theta, float phi, float omega) {
+static inline void printData(__m128 z, float zr, float zj, float theta, float phi, float omega) {
     union vect vect = {.vect = z};
     printf("(%g + %gI).(%g + %gI) = (%g + %gI)"
            "\nPhase from atan2f: %f\nPhase from argz: %f\nPhase from argzB: %f\n",
@@ -159,13 +159,13 @@ void printData(__m128 z, float zr, float zj, float theta, float phi, float omega
            zr, zj, theta, phi, omega);
 }
 
-void baseCases() {
+static void baseCases() {
     
     int i;
     float zr, zj, theta, phi, omega;
     __m128 z;
-    __m128 Z[7] = {{1,2,3,4},{4,3,2,1},{-5,-10,1,0},{5,-10,1,0},{0,0,0,0},
-                   {FLT_EPSILON,FLT_EPSILON,FLT_EPSILON,FLT_EPSILON}, {-1,1,1,1}};
+    __m128 Z[8] = {{1,2,3,4},{4,3,2,1},{-5,-10,1,0},{5,-10,1,0},{0,0,0,0},
+                   {FLT_EPSILON,FLT_EPSILON,FLT_EPSILON,FLT_EPSILON}, {1,1,1,1}, {-1,1,1,1}};
 
     for (i = 0; i < sizeof(Z)/sizeof(*Z); ++i) {
         z = Z[i];

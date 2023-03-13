@@ -142,6 +142,7 @@ __asm__(
 );
 
 static inline __m128 mm256Epi8convertmmPs(__m256i data) {
+
     __m128i lo_lane = _mm256_castsi256_si128(data);
     return _mm_cvtepi32_ps(_mm_cvtepi16_epi32(_mm_cvtepi8_epi16(lo_lane)));
 }
@@ -169,7 +170,7 @@ static __m128 apply4x4_4x1Transform(const struct rotationMatrix T, const __m128 
     // A = 0000 1010 = 00 22 => _MM_SHUFFLE(0,0,2,2)
 }
 
-static struct rotationMatrix generateRotationMatrix(const float theta, const float phi) {
+static inline struct rotationMatrix generateRotationMatrix(const float theta, const float phi) {
 
     const int16_t cosT = cos(theta) * (1 << 13);
     const int16_t sinT = sin(phi) * (1 << 13);
@@ -285,7 +286,6 @@ static uint32_t breakit(const uint8_t *buf, const uint64_t len, __m128 *result, 
 
 static uint64_t processMatrix(const uint8_t *buf, const uint64_t len, __m128 **buff, __m128 *squelch) {
 
-
     uint64_t depth;
     uint64_t count = len & 3UL // len/VECTOR_WIDTH + (len % VECTOR_WIDTH != 0 ? 1 : 0))
             ? (len >> LOG2_VECTOR_WIDTH) + 1UL
@@ -307,6 +307,7 @@ static uint64_t processMatrix(const uint8_t *buf, const uint64_t len, __m128 **b
 }
 
 static inline uint32_t readFileData(char *path, uint8_t **buf) {
+
     *buf = calloc(MAXIMUM_BUF_SIZE, INPUT_ELEMENT_BYTES);
     FILE *file = fopen(path, "rb");
     uint32_t result = fread(*buf, INPUT_ELEMENT_BYTES, MAXIMUM_BUF_SIZE, file);
