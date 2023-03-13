@@ -97,17 +97,17 @@ __asm__(
 #else
 "argzB: "
 #endif
+    "vpxor %xmm3, %xmm3, %xmm3\n\t"         // store zero
     "vpermilps $0xEB, %xmm0, %xmm1\n\t"     // (ar, aj, br, bj) => (aj, aj, ar, ar)
     "vpermilps $0x5, %xmm0, %xmm0\n\t"      // and                 (bj, br, br, bj)
 
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // aj*bj, aj*br, ar*br, ar*bj
-    "vpermilps $0x8D, %xmm0, %xmm3\n\t"     // aj*br, aj*bj, ar*bj, ar*br
-    "vaddsubps %xmm3, %xmm0, %xmm0\n\t"     //  ... [don't care], ar*bj + aj*br, ar*br - aj*bj, [don't care] ...
+    "vpermilps $0x8D, %xmm0, %xmm2\n\t"     // aj*br, aj*bj, ar*bj, ar*br
+    "vaddsubps %xmm2, %xmm0, %xmm0\n\t"     //  ... [don't care], ar*bj + aj*br, ar*br - aj*bj, [don't care] ...
     "vmulps %xmm0, %xmm0, %xmm1\n\t"        // ... , (ar*bj + aj*br)^2, (ar*br - aj*bj)^2, ...
     "vpermilps $0x1B, %xmm1, %xmm2\n\t"
     "vaddps %xmm2, %xmm1, %xmm1\n\t"        // ..., (ar*br - aj*bj)^2 + (ar*bj + aj*br)^2, ...
 
-    "vxorps %xmm3, %xmm3, %xmm3\n\t"
     "vpermilps $0x01, %xmm0, %xmm2\n\t"
     "vcomiss %xmm2, %xmm3\n\t"
     "jnz showtime\n\t"
@@ -118,8 +118,12 @@ __asm__(
     "vmovq LC3(%rip), %xmm0\n\t"
     "ret \n\t"
 
+"zero: "
+    "vmovq %xmm3,%xmm0\n\t"
+    "ret\n\t"
+
 "showtime: "                                // approximating atan2 with atan(z)
-                                            //   = z/(1 + (9/32) z^2) for z = y/x
+                                            //   = z/(1 + (9/32) z^2) for z = (64 y)/(23 x + 41 Sqrt[x^2 + y^2])
     "vrsqrtps %xmm1, %xmm1\n\t"             // ..., 1/Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "vmulps %xmm1, %xmm0, %xmm0\n\t"        // ... , zj/||z|| , zr/||z|| = (ar*br - aj*bj) / Sqrt[(ar*br - aj*bj)^2 + (ar*bj + aj*br)^2], ...
     "movddup LC0(%rip), %xmm2\n\t"          // 64
@@ -134,10 +138,6 @@ __asm__(
     "vmulps %xmm3, %xmm2, %xmm0\n\t"
 
     "vpermilps $0x01, %xmm0, %xmm0\n\t"
-    "ret\n\t"
-
-"zero: "
-    "vxorps %xmm0, %xmm0, %xmm0\n\t"
     "ret\n\t"
 );
 
