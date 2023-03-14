@@ -15,8 +15,11 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#define TIMING_RUNS 3
+#define TIMING_RUNS 4
 #include "timed_functions.h"
+#ifdef __ICC
+#include <immintrin.h>
+#endif
 
 //#define DEBUG
 #define MAX_ERROR 0.1f
@@ -162,6 +165,15 @@ static inline void printData(__m128 z, float zr, float zj, float theta, float ph
            zr, zj, theta, phi, omega);
 }
 
+#ifdef __ICC
+static inline __m128 argzC(__m128 z) {
+
+    z = _mm_mul_ps(_mm_permute_ps(z, 0x5), _mm_permute_ps(z, 0xEB));
+    z = _mm_addsub_ps(z, _mm_permute_ps(z, 0x8D));
+    return _mm_atan2_ps(z, _mm_permute_ps(z, 0x1B));
+}
+#endif
+
 static void baseCases() {
     
     int i;
@@ -189,9 +201,17 @@ static inline float /*__attribute__((noinline))*/ arg(__m128 z) {
     multiply(z, &zr, &zj);
     return atan2f(zj, zr);
 }
+
 int main(void) {
 
-    char *runNames[TIMING_RUNS] = {"atan2f :: ", "argz :: ", "argzB :: "};
+    char *runNames[TIMING_RUNS] = {"atan2f :: ", "argz :: ", "argzB :: ",
+#ifdef __ICC
+                                   "_mm_atan2_ps :: "};
+    __m128 tmp;
+#else
+                                    "n/a; not using ICC :: "};
+#endif
+
     float ar = MIN;
     float aj = MIN;
     float br = MIN;
@@ -201,10 +221,14 @@ int main(void) {
     float mu, theta, phi, omega, delta;
     uint64_t i, n;
     uint64_t N = ceil(pow((MAX - MIN)/STEP + 1, 4.));
-    uint64_t onePercent = (uint64_t)(.01f * N);
     float *xs = calloc(N, sizeof(float));
     struct timespec tstart, tend;
     __m128 z;
+#ifdef DEBUG
+    uint64_t onePercent = (uint64_t)(.01f * N);
+    float zr;
+    float zj;
+#endif
 
     baseCases();
 
@@ -212,18 +236,9 @@ int main(void) {
 
         union vect temp = {ar, aj, br, bj};
         z = temp.vect;
-
-        // START_TIMED
-        clock_gettime(CLOCK_MONOTONIC, &tstart);
-
-//        multiply(z, &zr, &zj);
-//        theta = atan2f(zj, zr);
-        theta = arg(z);
-
-        clock_gettime(CLOCK_MONOTONIC, &tend);
-        findDeltaTime(0, &tstart, &tend);
-        // END TIMED
-        assert(!isnan(theta));
+#ifdef DEBUG
+        multiply(z, &zr, &zj);
+#endif
 
         // START_TIMED
         clock_gettime(CLOCK_MONOTONIC, &tstart);
@@ -243,6 +258,29 @@ int main(void) {
         clock_gettime(CLOCK_MONOTONIC, &tend);
         findDeltaTime(2, &tstart, &tend);
         // END TIMED
+
+        // START_TIMED
+        clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+        theta = arg(z);
+
+        clock_gettime(CLOCK_MONOTONIC, &tend);
+        findDeltaTime(0, &tstart, &tend);
+        // END TIMED
+
+#ifdef __ICC
+        // START_TIMED
+        clock_gettime(CLOCK_MONOTONIC, &tstart);
+
+        tmp = argzC(z);
+        theta = (union vect){.vect = tmp}.arr[1];
+
+        clock_gettime(CLOCK_MONOTONIC, &tend);
+        findDeltaTime(3, &tstart, &tend);
+        // END TIMED
+#endif
+
+        assert(!isnan(theta));
 
 #ifdef DEBUG
         if (isnan(omega)) {
